@@ -11,7 +11,7 @@ set(SOURCES
         fsm.h
         pathfinder.cpp
         pathfinder.h
-        jason_helpers.cpp
+        json_helpers.cpp
         json_helpers.h
         bot_io.cpp
 )

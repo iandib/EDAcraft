@@ -40,6 +40,12 @@ private:
     // Origin coordinates (used as base reference)
     int originX, originY, originZ;
 
+    // Contador de pasos para movimiento en línea recta
+    int stepCount;
+
+    // Flag para evitar enviar múltiples comandos step sin esperar respuesta
+    bool waitingForStepResponse;
+
     // Optional flag if needed later
     bool moved = false;
 };
