@@ -45,10 +45,11 @@ int main() {
             // Log the reply we got from JS
             std::cerr << "[C++] Received: " << reply.dump() << "\n";
 
+
             // Pass the reply to the FSM so it can update its state
             fsm.handleBotFeedback(reply);
         } catch (const std::exception& e) {
-            // If something goes wrong (no reply, invalid JSON), log and stop
+            // If something goes wrong (no reply, invalid JSON, timeout), log and stop
             std::cerr << "[C++] Communication error: " << e.what() << "\n";
             break;
         }

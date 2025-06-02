@@ -34,17 +34,13 @@ private:
         estado2, // Not doing anything
         RequestPosition,   // Ask the bot for its current position
         MoveToTarget,      // Move to a new target based on origin
-        Done               // Task complete
+        Done,               // Task complete
+        Estado3,
+        Estado4,
     } state;
 
     // Origin coordinates (used as base reference)
     int originX, originY, originZ;
-
-    // Contador de pasos para movimiento en línea recta
-    int stepCount;
-
-    // Flag para evitar enviar múltiples comandos step sin esperar respuesta
-    bool waitingForStepResponse;
 
     // Optional flag if needed later
     bool moved = false;
