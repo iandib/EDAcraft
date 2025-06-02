@@ -10,12 +10,17 @@
  */
 
 #include "fsm.h"
+#include "json_helpers.h"
 #include <iostream>
+#include <cmath>
 
-// Constructor: set initial state and origin
+// Constructor: set initial state and initialize pathfinder
 FSM::FSM() : state(State::RequestPosition), originX(0), originY(0), originZ(0), 
-             currentX(0), currentY(0), currentZ(0), targetDirection("east"),
-             digX(0), digY(0), digZ(0), stepCount(0) {}
+             currentX(0), currentY(0), currentZ(0), 
+             targetPos(TARGET_X, TARGET_Y, TARGET_Z),
+             digX(0), digY(0), digZ(0), stepCount(0),
+             explorationDirection("east"), explorationSteps(0), maxExplorationSteps(10),
+             pathCalculated(false), positionReceived(false), recalculationAttempts(0) {}
 
 // Generate the next action command based on the current FSM state
 nlohmann::json FSM::nextAction()
@@ -24,47 +29,63 @@ nlohmann::json FSM::nextAction()
     
     switch (state) {
         case State::RequestPosition:
-            action["action"] = "position";
+            action = createPositionCommand();
             std::cerr << "Requesting bot position..." << std::endl;
             return action;
             
-        case State::MoveToTarget:
-            // Limitar el número de pasos para evitar bucles infinitos
-            if (stepCount >= 50) {
-                std::cerr << "Maximum steps reached, going idle..." << std::endl;
+        case State::CalculatePath:
+            {
+                Position3D startPos(currentX, currentY, currentZ);
+                std::cerr << "Calculating path from (" << currentX << ", " << currentY << ", " << currentZ 
+                         << ") to (" << TARGET_X << ", " << TARGET_Y << ", " << TARGET_Z << ")..." << std::endl;
+                
+                if (pathfinder.calculatePath(startPos, targetPos)) {
+                    std::cerr << "Path calculated successfully!" << std::endl;
+                    pathCalculated = true;
+                    state = State::MoveToNextPosition;
+                } else {
+                    std::cerr << "Failed to calculate path!" << std::endl;
+                    state = State::Idle;
+                }
+                return nlohmann::json{};
+            }
+            
+        case State::MoveToNextPosition:
+            if (isAtTarget()) {
+                std::cerr << "Reached target coordinates!" << std::endl;
                 state = State::Done;
                 return nlohmann::json{};
             }
             
-            action["action"] = "step";
-            action["dir"] = targetDirection;
-            std::cerr << "Sending step " << targetDirection << " (step " << stepCount + 1 << ")..." << std::endl;
+            if (pathfinder.isPathComplete()) {
+                std::cerr << "Path complete but not at target, recalculating..." << std::endl;
+                state = State::RecalculatePath;
+                return nlohmann::json{};
+            }
+            
+            // Get next position from pathfinder
+            nextPos = pathfinder.getNextPosition(Position3D(currentX, currentY, currentZ));
+            currentDirection = calculateDirection(Position3D(currentX, currentY, currentZ), nextPos);
+            
+            if (currentDirection.empty()) {
+                std::cerr << "No valid direction found, recalculating path..." << std::endl;
+                state = State::RecalculatePath;
+                return nlohmann::json{};
+            }
+            
+            // If we need to jump
+            if (nextPos.y > currentY) {
+                action = createJumpCommand();
+                std::cerr << "Jumping to reach higher position..." << std::endl;
+                return action;
+            }
+            
+            action = createStepCommand(currentDirection);
+            std::cerr << "Moving " << currentDirection << " towards (" << nextPos.x << ", " << nextPos.y << ", " << nextPos.z << ")..." << std::endl;
             return action;
             
         case State::CheckBlockAhead:
-            // Calcular la posición del bloque que está adelante según la dirección
-            if (targetDirection == "east") {
-                digX = currentX + 1;
-                digY = currentY;
-                digZ = currentZ;
-            } else if (targetDirection == "west") {
-                digX = currentX - 1;
-                digY = currentY;
-                digZ = currentZ;
-            } else if (targetDirection == "north") {
-                digX = currentX;
-                digY = currentY;
-                digZ = currentZ - 1;
-            } else if (targetDirection == "south") {
-                digX = currentX;
-                digY = currentY;
-                digZ = currentZ + 1;
-            }
-            
-            action["action"] = "block_at";
-            action["position"]["x"] = digX;
-            action["position"]["y"] = digY;
-            action["position"]["z"] = digZ;
+            action = createBlockAtCommand(digX, digY, digZ);
             std::cerr << "Checking block at (" << digX << ", " << digY << ", " << digZ << ")..." << std::endl;
             return action;
             
@@ -76,12 +97,39 @@ nlohmann::json FSM::nextAction()
             std::cerr << "Digging block at (" << digX << ", " << digY << ", " << digZ << ")..." << std::endl;
             return action;
             
+        case State::RecalculatePath:
+            if (recalculationAttempts >= 3) {
+                std::cerr << "Too many recalculation attempts, starting exploration mode..." << std::endl;
+                state = State::ExploreRandomly;
+                explorationSteps = 0;
+                explorationDirection = "east"; // Reset exploration direction
+                return nlohmann::json{};
+            }
+            
+            recalculationAttempts++;
+            pathfinder.reset();
+            state = State::CalculatePath;
+            std::cerr << "Recalculating path (attempt " << recalculationAttempts << ")..." << std::endl;
+            return nlohmann::json{};
+            
+        case State::ExploreRandomly:
+            if (explorationSteps >= maxExplorationSteps) {
+                std::cerr << "Exploration complete, trying to calculate path again..." << std::endl;
+                recalculationAttempts = 0; // Reset recalculation attempts
+                state = State::CalculatePath;
+                return nlohmann::json{};
+            }
+            
+            action = createStepCommand(explorationDirection);
+            std::cerr << "Exploring: moving " << explorationDirection << " (step " << explorationSteps + 1 << "/" << maxExplorationSteps << ")..." << std::endl;
+            return action;
+            
         case State::Idle:
             std::cerr << "Bot is idle, waiting..." << std::endl;
-            return nlohmann::json{}; // Retorna JSON vacío
+            return nlohmann::json{};
             
         case State::Done:
-            std::cerr << "Task completed! Bot moved " << stepCount << " steps." << std::endl;
+            std::cerr << "Task completed! Bot reached target coordinates after " << stepCount << " steps." << std::endl;
             return nlohmann::json{};
             
         default:
@@ -98,109 +146,141 @@ void FSM::handleBotFeedback(const nlohmann::json& msg)
 
     switch (state) {
         case State::RequestPosition:
-            // Si recibimos la posición correctamente, guardamos las coordenadas y cambiamos a MoveToTarget
-            if ((msg.contains("status") && msg["status"] == "ok") || 
-                (msg.contains("type") && msg["type"] == "position")) {
-                
-                if (msg.contains("x") && msg.contains("y") && msg.contains("z")) {
-                    currentX = msg["x"];
-                    currentY = msg["y"];
-                    currentZ = msg["z"];
+            {
+                int x, y, z;
+                if (extractPosition(msg, x, y, z)) {
+                    currentX = x;
+                    currentY = y;
+                    currentZ = z;
+                    positionReceived = true;
                     std::cerr << "Position received: (" << currentX << ", " << currentY << ", " << currentZ << ")" << std::endl;
+                    
+                    if (isAtTarget()) {
+                        std::cerr << "Already at target coordinates!" << std::endl;
+                        state = State::Done;
+                    } else {
+                        state = State::CalculatePath;
+                    }
                 }
-                
-                std::cerr << "Starting movement..." << std::endl;
-                state = State::MoveToTarget;
             }
             break;
             
-        case State::MoveToTarget:
-            // Si el paso fue exitoso, seguimos moviéndonos
+        case State::MoveToNextPosition:
             if (msg.contains("action") && msg["action"] == "step") {
-                // Manejar tanto boolean como string para "ok"
-                bool stepSuccessful = false;
-                if (msg.contains("ok")) {
-                    if (msg["ok"].is_boolean()) {
-                        stepSuccessful = msg["ok"].get<bool>();
-                    } else if (msg["ok"].is_string()) {
-                        stepSuccessful = (msg["ok"] == "true");
-                    }
-                }
-                
-                if (stepSuccessful) {
-                    std::cerr << "Step successful, continuing movement..." << std::endl;
+                if (isSuccessResponse(msg)) {
+                    std::cerr << "Step successful!" << std::endl;
                     stepCount++;
                     
-                    // Actualizar posición actual basada en la dirección del movimiento
-                    if (targetDirection == "east") {
-                        currentX++;
-                    } else if (targetDirection == "west") {
-                        currentX--;
-                    } else if (targetDirection == "north") {
-                        currentZ--;
-                    } else if (targetDirection == "south") {
-                        currentZ++;
-                    }
+                    // Update current position
+                    currentX = nextPos.x;
+                    currentY = nextPos.y;
+                    currentZ = nextPos.z;
                     
-                    // Mantenemos el estado MoveToTarget para seguir moviéndonos
+                    std::cerr << "Current position: (" << currentX << ", " << currentY << ", " << currentZ << ")" << std::endl;
+                    
+                    // Continue moving
+                    // State remains MoveToNextPosition for next iteration
                 } else {
                     std::cerr << "Step failed: " << msg.dump() << std::endl;
-                    // Si falla el movimiento, vamos a ver qué bloque está bloqueando
+                    
+                    // Calculate position of blocking block
+                    if (currentDirection == "east") {
+                        digX = currentX + 1; digY = currentY; digZ = currentZ;
+                    } else if (currentDirection == "west") {
+                        digX = currentX - 1; digY = currentY; digZ = currentZ;
+                    } else if (currentDirection == "north") {
+                        digX = currentX; digY = currentY; digZ = currentZ - 1;
+                    } else if (currentDirection == "south") {
+                        digX = currentX; digY = currentY; digZ = currentZ + 1;
+                    }
+                    
                     state = State::CheckBlockAhead;
                 }
+            } else if (msg.contains("action") && msg["action"] == "jump") {
+                std::cerr << "Jump executed, continuing movement..." << std::endl;
+                // Continue with step command next
             }
             break;
             
         case State::CheckBlockAhead:
-            // Analizamos qué bloque está en la posición bloqueante
             if ((msg.contains("action") && msg["action"] == "block_at") ||
                 (msg.contains("type") && msg["type"] == "block_at")) {
                 
-                if (msg.contains("name")) {
-                    std::string blockName = msg["name"];
+                std::string blockName;
+                if (extractBlockInfo(msg, blockName)) {
                     std::cerr << "Found blocking block: " << blockName << std::endl;
                     
-                    // Si hay un bloque que podemos romper (como hojas, madera, tierra, etc.)
-                    if (blockName != "air" && blockName != "water" && blockName != "lava" && 
+                    // Update world cache
+                    updateWorldCache(Position3D(digX, digY, digZ), blockName);
+                    
+                    // Special case: if we're trying to dig air, we're probably stuck in tree canopy
+                    if (blockName == "air") {
+                        std::cerr << "Cannot dig air - bot appears to be stuck in tree canopy or similar. Starting exploration mode..." << std::endl;
+                        state = State::ExploreRandomly;
+                        explorationSteps = 0;
+                        explorationDirection = "east"; // Reset exploration direction
+                        return;
+                    }
+                    
+                    if (blockName != "water" && blockName != "lava" && 
                         blockName != "bedrock" && blockName != "barrier") {
                         std::cerr << "Attempting to dig through " << blockName << std::endl;
                         state = State::DigBlockAhead;
                     } else {
-                        std::cerr << "Cannot dig " << blockName << ", changing direction..." << std::endl;
-                        changeDirection();
+                        std::cerr << "Cannot dig " << blockName << ", recalculating path..." << std::endl;
+                        state = State::RecalculatePath;
                     }
-                } else if (msg.contains("message")) {
-                    std::cerr << "No block found at target position: " << msg["message"] << std::endl;
-                    // Si no hay bloque (es aire), significa que el pathfinder falló por otra razón
-                    // Intentamos cambiar de dirección
-                    changeDirection();
                 } else {
-                    std::cerr << "Unexpected block_at response, changing direction..." << std::endl;
-                    changeDirection();
+                    std::cerr << "Could not identify blocking block, recalculating path..." << std::endl;
+                    state = State::RecalculatePath;
                 }
             }
             break;
             
         case State::DigBlockAhead:
-            // Procesamos el resultado del intento de minado
             if (msg.contains("action") && msg["action"] == "dig_block") {
-                // Manejar tanto boolean como string para "ok"
-                bool digSuccessful = false;
-                if (msg.contains("ok")) {
-                    if (msg["ok"].is_boolean()) {
-                        digSuccessful = msg["ok"].get<bool>();
-                    } else if (msg["ok"].is_string()) {
-                        digSuccessful = (msg["ok"] == "true");
-                    }
-                }
-                
-                if (digSuccessful) {
-                    std::cerr << "Successfully dug block, trying to move again..." << std::endl;
-                    state = State::MoveToTarget;
+                if (isSuccessResponse(msg)) {
+                    std::cerr << "Successfully dug block, updating world cache and continuing..." << std::endl;
+                    
+                    // Update world cache to mark block as air
+                    updateWorldCache(Position3D(digX, digY, digZ), "air");
+                    
+                    state = State::MoveToNextPosition;
                 } else {
                     std::cerr << "Failed to dig block: " << msg.dump() << std::endl;
-                    // Si no podemos picar, cambiamos de dirección
-                    changeDirection();
+                    state = State::RecalculatePath;
+                }
+            }
+            break;
+            
+        case State::ExploreRandomly:
+            if (msg.contains("action") && msg["action"] == "step") {
+                if (isSuccessResponse(msg)) {
+                    std::cerr << "Exploration step successful!" << std::endl;
+                    explorationSteps++;
+                    
+                    // Update current position based on exploration direction
+                    if (explorationDirection == "east") {
+                        currentX++;
+                    } else if (explorationDirection == "west") {
+                        currentX--;
+                    } else if (explorationDirection == "north") {
+                        currentZ--;
+                    } else if (explorationDirection == "south") {
+                        currentZ++;
+                    }
+                    
+                    std::cerr << "Current position: (" << currentX << ", " << currentY << ", " << currentZ << ")" << std::endl;
+                    
+                    // Check if we've reached the target during exploration
+                    if (isAtTarget()) {
+                        std::cerr << "Reached target during exploration!" << std::endl;
+                        state = State::Done;
+                    }
+                    // Continue exploration or finish based on step count
+                } else {
+                    std::cerr << "Exploration step failed, changing direction..." << std::endl;
+                    changeExplorationDirection();
                 }
             }
             break;
@@ -210,28 +290,69 @@ void FSM::handleBotFeedback(const nlohmann::json& msg)
     }
 }
 
-// Función auxiliar para cambiar de dirección
-void FSM::changeDirection() {
-    if (targetDirection == "east") {
-        targetDirection = "south";
-        std::cerr << "Changing direction to south" << std::endl;
-        state = State::MoveToTarget;
-    } else if (targetDirection == "south") {
-        targetDirection = "west";
-        std::cerr << "Changing direction to west" << std::endl;
-        state = State::MoveToTarget;
-    } else if (targetDirection == "west") {
-        targetDirection = "north";
-        std::cerr << "Changing direction to north" << std::endl;
-        state = State::MoveToTarget;
-    } else if (targetDirection == "north") {
-        targetDirection = "east";
-        std::cerr << "Changing direction to east" << std::endl;
-        state = State::MoveToTarget;
-    } else {
-        std::cerr << "All directions tried, going idle" << std::endl;
-        state = State::Idle;
+// Helper function to calculate direction string from two positions
+std::string FSM::calculateDirection(const Position3D& from, const Position3D& to) {
+    int dx = to.x - from.x;
+    int dz = to.z - from.z;
+    
+    // Only handle cardinal directions for step command
+    if (dx > 0 && dz == 0) return "east";
+    if (dx < 0 && dz == 0) return "west";
+    if (dz < 0 && dx == 0) return "north";
+    if (dz > 0 && dx == 0) return "south";
+    
+    // For diagonal or complex movements, prioritize X movement
+    if (dx > 0) return "east";
+    if (dx < 0) return "west";
+    if (dz < 0) return "north";
+    if (dz > 0) return "south";
+    
+    return ""; // No movement needed
+}
+
+// Helper function to change exploration direction when blocked
+void FSM::changeExplorationDirection() {
+    if (explorationDirection == "east") {
+        explorationDirection = "south";
+        std::cerr << "Changing exploration direction to south" << std::endl;
+    } else if (explorationDirection == "south") {
+        explorationDirection = "west";
+        std::cerr << "Changing exploration direction to west" << std::endl;
+    } else if (explorationDirection == "west") {
+        explorationDirection = "north";
+        std::cerr << "Changing exploration direction to north" << std::endl;
+    } else if (explorationDirection == "north") {
+        explorationDirection = "east";
+        std::cerr << "Changing exploration direction to east" << std::endl;
     }
+}
+
+// Check if bot is at target coordinates
+bool FSM::isAtTarget() const {
+    return abs(currentX - TARGET_X) <= 1 && 
+           abs(currentY - TARGET_Y) <= 1 && 
+           abs(currentZ - TARGET_Z) <= 1;
+}
+
+// Update world cache with block information
+void FSM::updateWorldCache(const Position3D& pos, const std::string& blockName) {
+    BlockType blockType;
+    
+    if (blockName == "air") {
+        blockType = BlockType::AIR;
+    } else if (blockName == "water" || blockName == "lava") {
+        blockType = BlockType::LIQUID;
+    } else {
+        blockType = BlockType::SOLID;
+    }
+    
+    pathfinder.updateWorldCache(pos, blockType);
+}
+
+// Legacy function - kept for compatibility but not used in A* implementation
+void FSM::changeDirection() {
+    // This function is not needed in A* implementation
+    // The pathfinder handles direction changes automatically
 }
 
 // Optionally update the bot's origin position
