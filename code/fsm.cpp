@@ -9,6 +9,11 @@
  *
  */
 
+// TODO 1 hay q corregir el A* para q funcione en 3D y no se bugee en la copa del árbol
+// TODO 2 hay q ponerle q actualice el path a medida que ve objetos
+// TODO 3 ver pq se congela cuando salta hacia abajo
+// TODO 4 hacer q reconozca el tipo de bloques, si ve q está trabado q intente picar
+
 #include "fsm.h"
 #include "json_helpers.h"
 #include <iostream>
