@@ -15,7 +15,10 @@
 // Constructor: set initial state and origin
 FSM::FSM() : state(State::RequestPosition), originX(0), originY(0), originZ(0), 
              currentX(0), currentY(0), currentZ(0), targetDirection("east"),
-             checkX(0), checkY(0), checkZ(0), stepCount(0) {}
+             checkX(0), checkY(0), checkZ(0), stepCount(0),
+             preStepX(0), preStepY(0), preStepZ(0),
+             scanX(0), scanY(0), scanZ(0), scanStartX(0), scanStartY(0), scanStartZ(0),
+             scanEndX(0), scanEndY(0), scanEndZ(0), scanningActive(false) {}
 
 // Generate the next action command based on the current FSM state
 nlohmann::json FSM::nextAction()
@@ -28,6 +31,11 @@ nlohmann::json FSM::nextAction()
             std::cerr << "Requesting bot position..." << std::endl;
             return action;
             
+        case State::RequestCurrentPosition:
+            action["action"] = "position";
+            std::cerr << "Requesting updated bot position..." << std::endl;
+            return action;
+            
         case State::MoveToTarget:
             // Limitar el número de pasos para evitar bucles infinitos
             if (stepCount >= 100) {
@@ -36,35 +44,40 @@ nlohmann::json FSM::nextAction()
                 return nlohmann::json{};
             }
             
+            // Guardar posición antes del step para calcular correctamente el bloque bloqueante
+            preStepX = currentX;
+            preStepY = currentY;
+            preStepZ = currentZ;
+            
             action["action"] = "step";
             action["dir"] = targetDirection;
             std::cerr << "Sending step " << targetDirection << " (step " << stepCount + 1 << ")..." << std::endl;
             return action;
             
-        case State::CheckBlockAhead:
-            // Calcular la posición del bloque que está adelante según la dirección
-            if (targetDirection == "east") {
-                checkX = currentX + 1;
-                checkY = currentY;
-                checkZ = currentZ;
-            } else if (targetDirection == "west") {
-                checkX = currentX - 1;
-                checkY = currentY;
-                checkZ = currentZ;
-            } else if (targetDirection == "north") {
-                checkX = currentX;
-                checkY = currentY;
-                checkZ = currentZ - 1;
-            } else if (targetDirection == "south") {
-                checkX = currentX;
-                checkY = currentY;
-                checkZ = currentZ + 1;
+        case State::ScanForBlocks:
+            // Si acabamos de empezar el escaneo, configurar los límites
+            if (!scanningActive) {
+                scanStartX = currentX - 3;
+                scanStartY = currentY - 3;
+                scanStartZ = currentZ - 3;
+                scanEndX = currentX + 3;
+                scanEndY = currentY + 3;
+                scanEndZ = currentZ + 3;
+                
+                scanX = scanStartX;
+                scanY = scanStartY;
+                scanZ = scanStartZ;
+                scanningActive = true;
+                
+                std::cerr << "Starting block scan in 2x2x2 area around bot at (" << currentX << ", " << currentY << ", " << currentZ << ")" << std::endl;
+                std::cerr << "Scan range: X[" << scanStartX << " to " << scanEndX << "], Y[" << scanStartY << " to " << scanEndY << "], Z[" << scanStartZ << " to " << scanEndZ << "]" << std::endl;
             }
             
+            // Escanear la posición actual
             action["action"] = "block_at";
-            action["position"]["x"] = checkX;
-            action["position"]["y"] = checkY;
-            action["position"]["z"] = checkZ;
+            action["position"]["x"] = scanX;
+            action["position"]["y"] = scanY;
+            action["position"]["z"] = scanZ;
             return action;
             
         case State::Idle:
@@ -137,28 +150,67 @@ void FSM::handleBotFeedback(const nlohmann::json& msg)
                         currentZ++;
                     }
                     
+                    std::cerr << "New position: (" << currentX << ", " << currentY << ", " << currentZ << ")" << std::endl;
+                    
                     // Mantenemos el estado MoveToTarget para seguir moviéndonos
                 } else {
                     std::cerr << "Step failed: " << msg.dump() << std::endl;
-                    // Si falla el movimiento, vamos a ver qué bloque está bloqueando
-                    state = State::CheckBlockAhead;
+                    // IMPORTANTE: Solicitar la posición actual real del bot antes de hacer el escaneo
+                    std::cerr << "Requesting current position after failed step..." << std::endl;
+                    state = State::RequestCurrentPosition;
                 }
             }
             break;
             
-        case State::CheckBlockAhead:
-            // Analizamos qué bloque está en la posición bloqueante
+        case State::RequestCurrentPosition:
+            // Actualizar la posición actual después de un step fallido
+            if ((msg.contains("status") && msg["status"] == "ok") || 
+                (msg.contains("type") && msg["type"] == "position")) {
+                
+                if (msg.contains("position")) {
+                    currentX = msg["position"]["x"];
+                    currentY = msg["position"]["y"];
+                    currentZ = msg["position"]["z"];
+                } else if (msg.contains("x") && msg.contains("y") && msg.contains("z")) {
+                    currentX = msg["x"];
+                    currentY = msg["y"];
+                    currentZ = msg["z"];
+                }
+                
+                std::cerr << "Updated position after failed step: (" << currentX << ", " << currentY << ", " << currentZ << ")" << std::endl;
+                std::cerr << "Pre-step position was: (" << preStepX << ", " << preStepY << ", " << preStepZ << ")" << std::endl;
+                // Ahora iniciamos el escaneo sistemático
+                scanningActive = false; // Reset para que se configure en nextAction()
+                state = State::ScanForBlocks;
+            }
+            break;
+            
+        case State::ScanForBlocks:
+            // Procesamos el resultado del escaneo actual
             if ((msg.contains("action") && msg["action"] == "block_at") ||
                 (msg.contains("type") && msg["type"] == "block_at")) {
                 
                 if (msg.contains("name")) {
                     std::string blockName = msg["name"];
-                    std::cerr << "Block detected: " << blockName << std::endl;
+                    std::cerr << "*** BLOCK FOUND *** at (" << scanX << ", " << scanY << ", " << scanZ << "): " << blockName << std::endl;
                 }
-                // Si no hay bloque (aire), no imprimimos nada
                 
-                // Después de verificar el bloque, cambiamos de dirección
-                changeDirection();
+                // Avanzar a la siguiente posición del escaneo
+                scanX++;
+                if (scanX > scanEndX) {
+                    scanX = scanStartX;
+                    scanZ++;
+                    if (scanZ > scanEndZ) {
+                        scanZ = scanStartZ;
+                        scanY++;
+                        if (scanY > scanEndY) {
+                            // Terminamos el escaneo
+                            std::cerr << "Block scan completed. Changing direction and resuming movement." << std::endl;
+                            scanningActive = false;
+                            changeDirection();
+                        }
+                    }
+                }
             }
             break;
             
@@ -166,6 +218,8 @@ void FSM::handleBotFeedback(const nlohmann::json& msg)
             break;
     }
 }
+
+
 
 // Función auxiliar para cambiar de dirección
 void FSM::changeDirection() {
