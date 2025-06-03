@@ -31,30 +31,17 @@ private:
     // Internal FSM states: modify this code to make your bot acomplish tasks.
     enum class State {
         Idle,
+        estado2, // Not doing anything
         RequestPosition,   // Ask the bot for its current position
         MoveToTarget,      // Move to a new target based on origin
-        CheckBlockAhead,   // Check what block is blocking the path
-        Done,              // Task complete
+        Done,               // Task complete
+        Estado3,
+        Estado4,
     } state;
 
     // Origin coordinates (used as base reference)
     int originX, originY, originZ;
-    
-    // Current bot position
-    int currentX, currentY, currentZ;
-    
-    // Target direction we're trying to move
-    std::string targetDirection;
-    
-    // Position of block we're trying to check
-    int checkX, checkY, checkZ;
-    
-    // Counter to track number of steps taken
-    int stepCount;
 
     // Optional flag if needed later
     bool moved = false;
-    
-    // Helper function to change direction when blocked
-    void changeDirection();
 };

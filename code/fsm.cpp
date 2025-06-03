@@ -15,7 +15,7 @@
 // Constructor: set initial state and origin
 FSM::FSM() : state(State::RequestPosition), originX(0), originY(0), originZ(0), 
              currentX(0), currentY(0), currentZ(0), targetDirection("east"),
-             digX(0), digY(0), digZ(0), stepCount(0) {}
+             checkX(0), checkY(0), checkZ(0), stepCount(0) {}
 
 // Generate the next action command based on the current FSM state
 nlohmann::json FSM::nextAction()
@@ -30,7 +30,7 @@ nlohmann::json FSM::nextAction()
             
         case State::MoveToTarget:
             // Limitar el número de pasos para evitar bucles infinitos
-            if (stepCount >= 50) {
+            if (stepCount >= 100) {
                 std::cerr << "Maximum steps reached, going idle..." << std::endl;
                 state = State::Done;
                 return nlohmann::json{};
@@ -44,36 +44,27 @@ nlohmann::json FSM::nextAction()
         case State::CheckBlockAhead:
             // Calcular la posición del bloque que está adelante según la dirección
             if (targetDirection == "east") {
-                digX = currentX + 1;
-                digY = currentY;
-                digZ = currentZ;
+                checkX = currentX + 1;
+                checkY = currentY;
+                checkZ = currentZ;
             } else if (targetDirection == "west") {
-                digX = currentX - 1;
-                digY = currentY;
-                digZ = currentZ;
+                checkX = currentX - 1;
+                checkY = currentY;
+                checkZ = currentZ;
             } else if (targetDirection == "north") {
-                digX = currentX;
-                digY = currentY;
-                digZ = currentZ - 1;
+                checkX = currentX;
+                checkY = currentY;
+                checkZ = currentZ - 1;
             } else if (targetDirection == "south") {
-                digX = currentX;
-                digY = currentY;
-                digZ = currentZ + 1;
+                checkX = currentX;
+                checkY = currentY;
+                checkZ = currentZ + 1;
             }
             
             action["action"] = "block_at";
-            action["position"]["x"] = digX;
-            action["position"]["y"] = digY;
-            action["position"]["z"] = digZ;
-            std::cerr << "Checking block at (" << digX << ", " << digY << ", " << digZ << ")..." << std::endl;
-            return action;
-            
-        case State::DigBlockAhead:
-            action["action"] = "dig_block";
-            action["x"] = digX;
-            action["y"] = digY;
-            action["z"] = digZ;
-            std::cerr << "Digging block at (" << digX << ", " << digY << ", " << digZ << ")..." << std::endl;
+            action["position"]["x"] = checkX;
+            action["position"]["y"] = checkY;
+            action["position"]["z"] = checkZ;
             return action;
             
         case State::Idle:
@@ -102,13 +93,17 @@ void FSM::handleBotFeedback(const nlohmann::json& msg)
             if ((msg.contains("status") && msg["status"] == "ok") || 
                 (msg.contains("type") && msg["type"] == "position")) {
                 
-                if (msg.contains("x") && msg.contains("y") && msg.contains("z")) {
+                if (msg.contains("position")) {
+                    currentX = msg["position"]["x"];
+                    currentY = msg["position"]["y"];
+                    currentZ = msg["position"]["z"];
+                } else if (msg.contains("x") && msg.contains("y") && msg.contains("z")) {
                     currentX = msg["x"];
                     currentY = msg["y"];
                     currentZ = msg["z"];
-                    std::cerr << "Position received: (" << currentX << ", " << currentY << ", " << currentZ << ")" << std::endl;
                 }
                 
+                std::cerr << "Position received: (" << currentX << ", " << currentY << ", " << currentZ << ")" << std::endl;
                 std::cerr << "Starting movement..." << std::endl;
                 state = State::MoveToTarget;
             }
@@ -158,50 +153,12 @@ void FSM::handleBotFeedback(const nlohmann::json& msg)
                 
                 if (msg.contains("name")) {
                     std::string blockName = msg["name"];
-                    std::cerr << "Found blocking block: " << blockName << std::endl;
-                    
-                    // Si hay un bloque que podemos romper (como hojas, madera, tierra, etc.)
-                    if (blockName != "air" && blockName != "water" && blockName != "lava" && 
-                        blockName != "bedrock" && blockName != "barrier") {
-                        std::cerr << "Attempting to dig through " << blockName << std::endl;
-                        state = State::DigBlockAhead;
-                    } else {
-                        std::cerr << "Cannot dig " << blockName << ", changing direction..." << std::endl;
-                        changeDirection();
-                    }
-                } else if (msg.contains("message")) {
-                    std::cerr << "No block found at target position: " << msg["message"] << std::endl;
-                    // Si no hay bloque (es aire), significa que el pathfinder falló por otra razón
-                    // Intentamos cambiar de dirección
-                    changeDirection();
-                } else {
-                    std::cerr << "Unexpected block_at response, changing direction..." << std::endl;
-                    changeDirection();
+                    std::cerr << "Block detected: " << blockName << std::endl;
                 }
-            }
-            break;
-            
-        case State::DigBlockAhead:
-            // Procesamos el resultado del intento de minado
-            if (msg.contains("action") && msg["action"] == "dig_block") {
-                // Manejar tanto boolean como string para "ok"
-                bool digSuccessful = false;
-                if (msg.contains("ok")) {
-                    if (msg["ok"].is_boolean()) {
-                        digSuccessful = msg["ok"].get<bool>();
-                    } else if (msg["ok"].is_string()) {
-                        digSuccessful = (msg["ok"] == "true");
-                    }
-                }
+                // Si no hay bloque (aire), no imprimimos nada
                 
-                if (digSuccessful) {
-                    std::cerr << "Successfully dug block, trying to move again..." << std::endl;
-                    state = State::MoveToTarget;
-                } else {
-                    std::cerr << "Failed to dig block: " << msg.dump() << std::endl;
-                    // Si no podemos picar, cambiamos de dirección
-                    changeDirection();
-                }
+                // Después de verificar el bloque, cambiamos de dirección
+                changeDirection();
             }
             break;
             
