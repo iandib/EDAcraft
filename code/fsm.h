@@ -34,7 +34,7 @@ private:
         RequestPosition,        // Ask the bot for its current position
         RequestCurrentPosition, // Ask for position after failed step
         MoveToTarget,          // Move to a new target based on origin
-        ScanForBlocks,         // Scan 10x10x10 area around bot to find blocking blocks
+        CheckObstacle,         // Check the two blocks in front of the bot
         Done,                  // Task complete
     } state;
 
@@ -50,14 +50,8 @@ private:
     // Target direction we're trying to move
     std::string targetDirection;
     
-    // Position of block we're trying to check
-    int checkX, checkY, checkZ;
-    
-    // Variables for systematic scanning
-    int scanX, scanY, scanZ;
-    int scanStartX, scanStartY, scanStartZ;
-    int scanEndX, scanEndY, scanEndZ;
-    bool scanningActive;
+    // Variables for checking obstacles (only 2 blocks in front)
+    int obstacleCheckCount; // 0 = lower block, 1 = upper block
     
     // Counter to track number of steps taken
     int stepCount;
@@ -67,4 +61,7 @@ private:
     
     // Helper function to change direction when blocked
     void changeDirection();
+    
+    // Helper function to get the position of the block in front based on direction
+    void getFrontBlockPosition(int& x, int& y, int& z, bool upperBlock = false);
 };

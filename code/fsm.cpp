@@ -15,10 +15,8 @@
 // Constructor: set initial state and origin
 FSM::FSM() : state(State::RequestPosition), originX(0), originY(0), originZ(0), 
              currentX(0), currentY(0), currentZ(0), targetDirection("east"),
-             checkX(0), checkY(0), checkZ(0), stepCount(0),
-             preStepX(0), preStepY(0), preStepZ(0),
-             scanX(0), scanY(0), scanZ(0), scanStartX(0), scanStartY(0), scanStartZ(0),
-             scanEndX(0), scanEndY(0), scanEndZ(0), scanningActive(false) {}
+             stepCount(0), preStepX(0), preStepY(0), preStepZ(0),
+             obstacleCheckCount(0) {}
 
 // Generate the next action command based on the current FSM state
 nlohmann::json FSM::nextAction()
@@ -54,30 +52,18 @@ nlohmann::json FSM::nextAction()
             std::cerr << "Sending step " << targetDirection << " (step " << stepCount + 1 << ")..." << std::endl;
             return action;
             
-        case State::ScanForBlocks:
-            // Si acabamos de empezar el escaneo, configurar los límites
-            if (!scanningActive) {
-                scanStartX = currentX - 3;
-                scanStartY = currentY - 3;
-                scanStartZ = currentZ - 3;
-                scanEndX = currentX + 3;
-                scanEndY = currentY + 3;
-                scanEndZ = currentZ + 3;
-                
-                scanX = scanStartX;
-                scanY = scanStartY;
-                scanZ = scanStartZ;
-                scanningActive = true;
-                
-                std::cerr << "Starting block scan in 2x2x2 area around bot at (" << currentX << ", " << currentY << ", " << currentZ << ")" << std::endl;
-                std::cerr << "Scan range: X[" << scanStartX << " to " << scanEndX << "], Y[" << scanStartY << " to " << scanEndY << "], Z[" << scanStartZ << " to " << scanEndZ << "]" << std::endl;
-            }
+        case State::CheckObstacle:
+            // Comprobar los dos bloques en frente del bot (nivel del suelo y nivel de la cabeza)
+            int checkX, checkY, checkZ;
+            getFrontBlockPosition(checkX, checkY, checkZ, obstacleCheckCount == 1);
             
-            // Escanear la posición actual
             action["action"] = "block_at";
-            action["position"]["x"] = scanX;
-            action["position"]["y"] = scanY;
-            action["position"]["z"] = scanZ;
+            action["position"]["x"] = checkX;
+            action["position"]["y"] = checkY;
+            action["position"]["z"] = checkZ;
+            
+            std::cerr << "Checking obstacle block " << (obstacleCheckCount + 1) << "/2 at (" 
+                      << checkX << ", " << checkY << ", " << checkZ << ")" << std::endl;
             return action;
             
         case State::Idle:
@@ -154,7 +140,7 @@ void FSM::handleBotFeedback(const nlohmann::json& msg)
                     
                     // Mantenemos el estado MoveToTarget para seguir moviéndonos
                 } else {
-                    std::cerr << "Step failed: " << msg.dump() << std::endl;
+                    std::cerr << "Step failed, checking obstacle in front..." << std::endl;
                     // IMPORTANTE: Solicitar la posición actual real del bot antes de hacer el escaneo
                     std::cerr << "Requesting current position after failed step..." << std::endl;
                     state = State::RequestCurrentPosition;
@@ -178,39 +164,32 @@ void FSM::handleBotFeedback(const nlohmann::json& msg)
                 }
                 
                 std::cerr << "Updated position after failed step: (" << currentX << ", " << currentY << ", " << currentZ << ")" << std::endl;
-                std::cerr << "Pre-step position was: (" << preStepX << ", " << preStepY << ", " << preStepZ << ")" << std::endl;
-                // Ahora iniciamos el escaneo sistemático
-                scanningActive = false; // Reset para que se configure en nextAction()
-                state = State::ScanForBlocks;
+                // Ahora iniciamos la comprobación de obstáculos (solo los 2 bloques en frente)
+                obstacleCheckCount = 0; // Empezar con el bloque del nivel del suelo
+                state = State::CheckObstacle;
             }
             break;
             
-        case State::ScanForBlocks:
-            // Procesamos el resultado del escaneo actual
+        case State::CheckObstacle:
+            // Procesamos el resultado de la comprobación del obstáculo
             if ((msg.contains("action") && msg["action"] == "block_at") ||
                 (msg.contains("type") && msg["type"] == "block_at")) {
                 
                 if (msg.contains("name")) {
                     std::string blockName = msg["name"];
-                    std::cerr << "*** BLOCK FOUND *** at (" << scanX << ", " << scanY << ", " << scanZ << "): " << blockName << std::endl;
+                    int checkX, checkY, checkZ;
+                    getFrontBlockPosition(checkX, checkY, checkZ, obstacleCheckCount == 1);
+                    std::cerr << "*** OBSTACLE BLOCK FOUND *** at (" << checkX << ", " << checkY << ", " << checkZ << "): " << blockName << std::endl;
                 }
                 
-                // Avanzar a la siguiente posición del escaneo
-                scanX++;
-                if (scanX > scanEndX) {
-                    scanX = scanStartX;
-                    scanZ++;
-                    if (scanZ > scanEndZ) {
-                        scanZ = scanStartZ;
-                        scanY++;
-                        if (scanY > scanEndY) {
-                            // Terminamos el escaneo
-                            std::cerr << "Block scan completed. Changing direction and resuming movement." << std::endl;
-                            scanningActive = false;
-                            changeDirection();
-                        }
-                    }
+                // Pasar al siguiente bloque (del suelo a la cabeza)
+                obstacleCheckCount++;
+                if (obstacleCheckCount >= 2) {
+                    // Hemos terminado de comprobar los 2 bloques en frente
+                    std::cerr << "Obstacle check completed. Changing direction and resuming movement." << std::endl;
+                    changeDirection();
                 }
+                // Si obstacleCheckCount < 2, nextAction() automáticamente comprobará el siguiente bloque
             }
             break;
             
@@ -218,8 +197,6 @@ void FSM::handleBotFeedback(const nlohmann::json& msg)
             break;
     }
 }
-
-
 
 // Función auxiliar para cambiar de dirección
 void FSM::changeDirection() {
@@ -242,6 +219,24 @@ void FSM::changeDirection() {
     } else {
         std::cerr << "All directions tried, going idle" << std::endl;
         state = State::Idle;
+    }
+}
+
+// Helper function to get the position of the block in front based on direction
+void FSM::getFrontBlockPosition(int& x, int& y, int& z, bool upperBlock) {
+    x = currentX;
+    y = currentY + (upperBlock ? 1 : 0); // Nivel del suelo o nivel de la cabeza
+    z = currentZ;
+    
+    // Ajustar coordenadas según la dirección
+    if (targetDirection == "east") {
+        x++;
+    } else if (targetDirection == "west") {
+        x--;
+    } else if (targetDirection == "north") {
+        z--;
+    } else if (targetDirection == "south") {
+        z++;
     }
 }
 
