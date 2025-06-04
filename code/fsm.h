@@ -1,9 +1,8 @@
 /**
- * @brief FSM that handles bot behaviour
+ * @brief FSM that handles bot behaviour with A* pathfinding
  *
  * @author Agustín Galdeman
- * @author
- * @author
+ * @author Enhanced with A* pathfinding
  *
  * @copyright Copyright (c) 2025
  *
@@ -11,10 +10,11 @@
 
 #pragma once
 #include <nlohmann/json.hpp>
+#include "pathfinder.h"
 
 class FSM {
 public:
-    // Constructor: initializes FSM state and origin
+    // Constructor: initializes FSM state and pathfinder
     FSM();
 
     // Returns the next action to send to the bot as a JSON command
@@ -23,45 +23,35 @@ public:
     // Processes bot's reply to update FSM state
     void handleBotFeedback(const nlohmann::json& msg);
 
+    // Set target destination for A* pathfinding
+    void setTarget(int x, int y, int z);
+    void setTarget(const Position3D& target);
+
     // Optionally update the bot's origin position
     void setOrigin(int x, int y, int z);
+    
+    // Check if the bot has completed its task
+    bool isComplete() const;
 
 private:
 
-    // Internal FSM states: modify this code to make your bot acomplish tasks.
+    // Internal FSM states: now delegates pathfinding to PathFinder
     enum class State {
         Idle,
-        RequestPosition,        // Ask the bot for its current position
-        RequestCurrentPosition, // Ask for position after failed step
-        MoveToTarget,          // Move to a new target based on origin
-        CheckObstacle,         // Check the two blocks in front of the bot
-        Done,                  // Task complete
+        Pathfinding,    // Delegating to A* pathfinder
+        Done,           // Task complete
     } state;
+
+    // A* Pathfinder instance
+    PathFinder pathfinder;
 
     // Origin coordinates (used as base reference)
     int originX, originY, originZ;
     
-    // Current bot position
-    int currentX, currentY, currentZ;
+    // Target coordinates
+    Position3D target;
+    bool hasTarget;
     
-    // Position before the failed step (to calculate blocking block correctly)
-    int preStepX, preStepY, preStepZ;
-    
-    // Target direction we're trying to move
-    std::string targetDirection;
-    
-    // Variables for checking obstacles (only 2 blocks in front)
-    int obstacleCheckCount; // 0 = lower block, 1 = upper block
-    
-    // Counter to track number of steps taken
-    int stepCount;
-
-    // Optional flag if needed later
-    bool moved = false;
-    
-    // Helper function to change direction when blocked
-    void changeDirection();
-    
-    // Helper function to get the position of the block in front based on direction
-    void getFrontBlockPosition(int& x, int& y, int& z, bool upperBlock = false);
+    // Step counting for statistics
+    int totalSteps;
 };
