@@ -1,6 +1,4 @@
-.idea
 .vscode
-build
-minebot
+.idea
 node_modules
 server
