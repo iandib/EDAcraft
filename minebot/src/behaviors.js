@@ -8,6 +8,8 @@ class NavigationStateMachine {
         this.directions = ['north', 'east', 'south', 'west'];
         this.currentDirectionIndex = 0;
         this.lastPosition = null;
+        this.consecutiveFailures = 0;
+        this.maxConsecutiveFailures = 3;
     }
 
     // Estados posibles
@@ -26,8 +28,9 @@ class NavigationStateMachine {
         this.currentDirectionIndex = this.directions.indexOf(direction);
         this.isRunning = true;
         this.currentState = NavigationStateMachine.STATES.MOVING;
+        this.consecutiveFailures = 0;
         
-        // Configurar la dirección inicial una sola vez
+        // Configurar la dirección inicial UNA SOLA VEZ
         const directionOffset = this.getDirectionOffset(this.targetDirection);
         await this.actions.look(directionOffset.yaw, 0);
         
@@ -60,11 +63,19 @@ class NavigationStateMachine {
                 }
                 
                 // Pausa pequeña para evitar sobrecargar el CPU
-                await this.sleep(50);
+                await this.sleep(100);
                 
             } catch (error) {
                 console.error(`Error in state ${this.currentState}:`, error.message);
-                this.currentState = NavigationStateMachine.STATES.CHECKING_OBSTACLES;
+                this.consecutiveFailures++;
+                
+                if (this.consecutiveFailures >= this.maxConsecutiveFailures) {
+                    console.log('Too many consecutive failures, changing direction');
+                    this.currentState = NavigationStateMachine.STATES.CHANGING_DIRECTION;
+                    this.consecutiveFailures = 0;
+                } else {
+                    this.currentState = NavigationStateMachine.STATES.CHECKING_OBSTACLES;
+                }
             }
         }
     }
@@ -79,33 +90,27 @@ class NavigationStateMachine {
     async handleMoving() {
         console.log(`Moving ${this.targetDirection}...`);
         
-        const positionBefore = this.actions.position();
-        
         try {
-            // Intentar moverse sin cambiar la dirección de vista
-            await this.actions.step(this.targetDirection);
+            // Intentar moverse - step() ahora devuelve true/false
+            const moveSucceeded = await this.actions.step(this.targetDirection);
             
-            // Verificar si realmente se movió comparando posiciones
-            const positionAfter = this.actions.position();
-            
-            if (this.positionsEqual(positionBefore, positionAfter)) {
-                console.log('Movement failed - position unchanged, checking obstacles...');
-                this.currentState = NavigationStateMachine.STATES.CHECKING_OBSTACLES;
+            if (moveSucceeded) {
+                console.log(`Successfully moved ${this.targetDirection}`);
+                this.consecutiveFailures = 0;
+                this.lastPosition = this.actions.position();
+                
+                // Pequeña pausa antes del siguiente movimiento
+                await this.sleep(200);
             } else {
-                console.log(`Successfully moved ${this.targetDirection} from (${positionBefore.x}, ${positionBefore.y}, ${positionBefore.z}) to (${positionAfter.x}, ${positionAfter.y}, ${positionAfter.z})`);
-                this.lastPosition = positionAfter;
-                // Continuar moviéndose sin sleep largo
-                await this.sleep(100);
+                console.log('Movement failed, checking obstacles...');
+                this.consecutiveFailures++;
+                this.currentState = NavigationStateMachine.STATES.CHECKING_OBSTACLES;
             }
         } catch (error) {
-            console.log(`Movement blocked, analyzing obstacle...`);
+            console.log(`Movement blocked: ${error.message}`);
+            this.consecutiveFailures++;
             this.currentState = NavigationStateMachine.STATES.CHECKING_OBSTACLES;
         }
-    }
-
-    // Verificar si dos posiciones son iguales
-    positionsEqual(pos1, pos2) {
-        return pos1.x === pos2.x && pos1.y === pos2.y && pos1.z === pos2.z;
     }
 
     // Manejar estado CHECKING_OBSTACLES
@@ -135,7 +140,7 @@ class NavigationStateMachine {
         console.log(`Feet level: ${feetBlock ? feetBlock.name : 'air'} (blocked: ${feetBlocked})`);
         console.log(`Head level: ${headBlock ? headBlock.name : 'air'} (blocked: ${headBlocked})`);
         
-        // Lógica de decisión según tu especificación
+        // Lógica de decisión
         if (headBlocked) {
             // Si la cabeza está bloqueada, cambiar dirección inmediatamente
             console.log('Head blocked - changing direction');
@@ -144,6 +149,10 @@ class NavigationStateMachine {
             // Si solo los pies están bloqueados, intentar saltar
             console.log('Only feet blocked - attempting to jump');
             this.currentState = NavigationStateMachine.STATES.JUMPING;
+        } else if (this.consecutiveFailures >= 2) {
+            // Si no hay obstáculos obvios pero llevamos varios fallos, cambiar dirección
+            console.log('No obvious obstacles but multiple failures - changing direction');
+            this.currentState = NavigationStateMachine.STATES.CHANGING_DIRECTION;
         } else {
             // Si no hay obstáculos obvios, volver a intentar moverse
             console.log('Path appears clear - resuming movement');
@@ -162,7 +171,8 @@ class NavigationStateMachine {
             'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip',
             'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
             'sunflower', 'lilac', 'rose_bush', 'peony', 'wheat', 'carrots',
-            'potatoes', 'beetroots', 'sugar_cane', 'kelp', 'seagrass'
+            'potatoes', 'beetroots', 'sugar_cane', 'kelp', 'seagrass',
+            'cave_air', 'void_air'
         ];
         
         return !nonSolidBlocks.includes(block.name);
@@ -172,30 +182,30 @@ class NavigationStateMachine {
     async handleJumping() {
         console.log('Executing jump sequence...');
         
-        const positionBefore = this.actions.position();
-        
         try {
-            // Saltar y intentar moverse inmediatamente sin sleep largo
+            // Saltar primero
             this.actions.jump();
-            await this.sleep(200); // Tiempo mínimo para que inicie el salto
+            
+            // Esperar un poco para que el salto inicie
+            await this.sleep(300);
             
             // Intentar moverse mientras está saltando
-            await this.actions.step(this.targetDirection);
+            const moveSucceeded = await this.actions.step(this.targetDirection);
             
-            // Verificar si se movió
-            const positionAfter = this.actions.position();
-            
-            if (this.positionsEqual(positionBefore, positionAfter)) {
-                console.log('Jump sequence failed - changing direction');
-                this.currentState = NavigationStateMachine.STATES.CHANGING_DIRECTION;
-            } else {
+            if (moveSucceeded) {
                 console.log('Jump and move sequence completed successfully');
-                this.lastPosition = positionAfter;
+                this.consecutiveFailures = 0;
+                this.lastPosition = this.actions.position();
                 this.currentState = NavigationStateMachine.STATES.MOVING;
+            } else {
+                console.log('Jump sequence failed - changing direction');
+                this.consecutiveFailures++;
+                this.currentState = NavigationStateMachine.STATES.CHANGING_DIRECTION;
             }
             
         } catch (error) {
             console.log('Jump sequence failed - changing direction');
+            this.consecutiveFailures++;
             this.currentState = NavigationStateMachine.STATES.CHANGING_DIRECTION;
         }
     }
@@ -204,18 +214,24 @@ class NavigationStateMachine {
     async handleChangingDirection() {
         console.log('Executing direction change...');
         
-        // Cambiar a la siguiente dirección en el orden: north -> east -> south -> west -> north...
+        // Cambiar a la siguiente dirección
         this.currentDirectionIndex = (this.currentDirectionIndex + 1) % this.directions.length;
         this.targetDirection = this.directions[this.currentDirectionIndex];
         
         console.log(`Direction changed to: ${this.targetDirection}`);
         
-        // Orientar el bot hacia la nueva dirección SOLO cuando cambia de dirección
+        // Orientar el bot hacia la nueva dirección
         const directionOffset = this.getDirectionOffset(this.targetDirection);
         await this.actions.look(directionOffset.yaw, 0);
         
-        // Volver al estado de movimiento sin delay largo
+        // Reset de fallos consecutivos al cambiar dirección
+        this.consecutiveFailures = 0;
+        
+        // Volver al estado de movimiento
         this.currentState = NavigationStateMachine.STATES.MOVING;
+        
+        // Pausa breve para asegurar que el cambio de vista se complete
+        await this.sleep(300);
     }
 
     // Obtener offset de dirección y ángulo de rotación
@@ -242,7 +258,8 @@ class NavigationStateMachine {
             currentState: this.currentState,
             targetDirection: this.targetDirection,
             isRunning: this.isRunning,
-            position: this.actions.position()
+            position: this.actions.position(),
+            consecutiveFailures: this.consecutiveFailures
         };
     }
 
