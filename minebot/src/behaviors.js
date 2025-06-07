@@ -1,162 +1,266 @@
-class BotBehaviors {
+class NavigationStateMachine {
     constructor(bot, actions) {
         this.bot = bot;
         this.actions = actions;
-        this.currentBehavior = null;
+        this.currentState = 'IDLE';
+        this.targetDirection = 'north';
         this.isRunning = false;
+        this.directions = ['north', 'east', 'south', 'west'];
+        this.currentDirectionIndex = 0;
+        this.lastPosition = null;
     }
 
-    // Comportamiento simple: mover en línea recta
-    async moveStraight(direction, steps) {
-        console.log(`Starting straight movement: ${direction} for ${steps} steps`);
-        
-        this.currentBehavior = 'moveStraight';
+    // Estados posibles
+    static STATES = {
+        IDLE: 'IDLE',
+        MOVING: 'MOVING',
+        CHECKING_OBSTACLES: 'CHECKING_OBSTACLES',
+        JUMPING: 'JUMPING',
+        CHANGING_DIRECTION: 'CHANGING_DIRECTION'
+    };
+
+    // Iniciar el comportamiento de navegación
+    async start(direction = 'north') {
+        console.log(`Starting autonomous navigation towards ${direction}`);
+        this.targetDirection = direction;
+        this.currentDirectionIndex = this.directions.indexOf(direction);
         this.isRunning = true;
+        this.currentState = NavigationStateMachine.STATES.MOVING;
         
-        try {
-            for (let i = 0; i < steps && this.isRunning; i++) {
-                console.log(`Step ${i + 1}/${steps}`);
-                await this.actions.step(direction);
-                
-                // Pausa pequeña entre pasos para que se vea más natural
-                await this.sleep(500);
-            }
-            
-            console.log('Straight movement completed');
-        } catch (error) {
-            console.error('Error during straight movement:', error.message);
-            throw error;
-        } finally {
-            this.isRunning = false;
-            this.currentBehavior = null;
-        }
+        // Configurar la dirección inicial una sola vez
+        const directionOffset = this.getDirectionOffset(this.targetDirection);
+        await this.actions.look(directionOffset.yaw, 0);
+        
+        // Guardar posición inicial
+        this.lastPosition = this.actions.position();
+        
+        await this.run();
     }
 
-    // Comportamiento: mover en cuadrado
-    async moveInSquare(size = 4) {
-        console.log(`Starting square movement with size ${size}`);
-        
-        this.currentBehavior = 'moveInSquare';
-        this.isRunning = true;
-        
-        const directions = ['north', 'east', 'south', 'west'];
-        
-        try {
-            for (let side = 0; side < 4 && this.isRunning; side++) {
-                const direction = directions[side];
-                console.log(`Moving ${direction} for ${size} steps`);
-                
-                for (let step = 0; step < size && this.isRunning; step++) {
-                    await this.actions.step(direction);
-                    await this.sleep(300);
-                }
-            }
-            
-            console.log('Square movement completed');
-        } catch (error) {
-            console.error('Error during square movement:', error.message);
-            throw error;
-        } finally {
-            this.isRunning = false;
-            this.currentBehavior = null;
-        }
-    }
-
-    // Comportamiento: exploración simple (movimiento aleatorio)
-    async explore(duration = 30000) { // 30 segundos por defecto
-        console.log(`Starting exploration for ${duration/1000} seconds`);
-        
-        this.currentBehavior = 'explore';
-        this.isRunning = true;
-        
-        const directions = ['north', 'south', 'east', 'west'];
-        const startTime = Date.now();
-        
-        try {
-            while (Date.now() - startTime < duration && this.isRunning) {
-                const randomDirection = directions[Math.floor(Math.random() * directions.length)];
-                const randomSteps = Math.floor(Math.random() * 3) + 1; // 1-3 pasos
-                
-                console.log(`Exploring: ${randomDirection} for ${randomSteps} steps`);
-                
-                try {
-                    for (let i = 0; i < randomSteps && this.isRunning; i++) {
-                        await this.actions.step(randomDirection);
-                        await this.sleep(400);
-                    }
-                } catch (error) {
-                    console.log(`Blocked in ${randomDirection}, trying another direction`);
-                    // Si no puede moverse en esa dirección, prueba otra
-                    continue;
+    // Bucle principal de la máquina de estados
+    async run() {
+        while (this.isRunning) {
+            try {
+                switch (this.currentState) {
+                    case NavigationStateMachine.STATES.IDLE:
+                        await this.handleIdle();
+                        break;
+                    case NavigationStateMachine.STATES.MOVING:
+                        await this.handleMoving();
+                        break;
+                    case NavigationStateMachine.STATES.CHECKING_OBSTACLES:
+                        await this.handleCheckingObstacles();
+                        break;
+                    case NavigationStateMachine.STATES.JUMPING:
+                        await this.handleJumping();
+                        break;
+                    case NavigationStateMachine.STATES.CHANGING_DIRECTION:
+                        await this.handleChangingDirection();
+                        break;
                 }
                 
-                // Pausa entre cambios de dirección
-                await this.sleep(800);
+                // Pausa pequeña para evitar sobrecargar el CPU
+                await this.sleep(50);
+                
+            } catch (error) {
+                console.error(`Error in state ${this.currentState}:`, error.message);
+                this.currentState = NavigationStateMachine.STATES.CHECKING_OBSTACLES;
             }
-            
-            console.log('Exploration completed');
-        } catch (error) {
-            console.error('Error during exploration:', error.message);
-            throw error;
-        } finally {
-            this.isRunning = false;
-            this.currentBehavior = null;
         }
     }
 
-    // Detener comportamiento actual
-    stop() {
-        console.log('Stopping current behavior');
-        this.isRunning = false;
+    // Manejar estado IDLE
+    async handleIdle() {
+        console.log('Bot is idle, starting movement...');
+        this.currentState = NavigationStateMachine.STATES.MOVING;
     }
 
-    // Obtener estado actual
-    getStatus() {
-        return {
-            currentBehavior: this.currentBehavior,
-            isRunning: this.isRunning,
-            position: this.actions.getPosition(),
-            vitals: this.actions.getVitals()
+    // Manejar estado MOVING
+    async handleMoving() {
+        console.log(`Moving ${this.targetDirection}...`);
+        
+        const positionBefore = this.actions.position();
+        
+        try {
+            // Intentar moverse sin cambiar la dirección de vista
+            await this.actions.step(this.targetDirection);
+            
+            // Verificar si realmente se movió comparando posiciones
+            const positionAfter = this.actions.position();
+            
+            if (this.positionsEqual(positionBefore, positionAfter)) {
+                console.log('Movement failed - position unchanged, checking obstacles...');
+                this.currentState = NavigationStateMachine.STATES.CHECKING_OBSTACLES;
+            } else {
+                console.log(`Successfully moved ${this.targetDirection} from (${positionBefore.x}, ${positionBefore.y}, ${positionBefore.z}) to (${positionAfter.x}, ${positionAfter.y}, ${positionAfter.z})`);
+                this.lastPosition = positionAfter;
+                // Continuar moviéndose sin sleep largo
+                await this.sleep(100);
+            }
+        } catch (error) {
+            console.log(`Movement blocked, analyzing obstacle...`);
+            this.currentState = NavigationStateMachine.STATES.CHECKING_OBSTACLES;
+        }
+    }
+
+    // Verificar si dos posiciones son iguales
+    positionsEqual(pos1, pos2) {
+        return pos1.x === pos2.x && pos1.y === pos2.y && pos1.z === pos2.z;
+    }
+
+    // Manejar estado CHECKING_OBSTACLES
+    async handleCheckingObstacles() {
+        console.log('Analyzing obstacle pattern...');
+        
+        const currentPos = this.actions.position();
+        const direction = this.getDirectionOffset(this.targetDirection);
+        
+        // Verificar bloque a nivel de los pies (posición actual)
+        const feetBlock = this.actions.block_at(
+            currentPos.x + direction.x, 
+            currentPos.y, 
+            currentPos.z + direction.z
+        );
+        
+        // Verificar bloque a nivel de la cabeza (posición actual + 1)
+        const headBlock = this.actions.block_at(
+            currentPos.x + direction.x, 
+            currentPos.y + 1, 
+            currentPos.z + direction.z
+        );
+        
+        const feetBlocked = this.isBlockSolid(feetBlock);
+        const headBlocked = this.isBlockSolid(headBlock);
+        
+        console.log(`Feet level: ${feetBlock ? feetBlock.name : 'air'} (blocked: ${feetBlocked})`);
+        console.log(`Head level: ${headBlock ? headBlock.name : 'air'} (blocked: ${headBlocked})`);
+        
+        // Lógica de decisión según tu especificación
+        if (headBlocked) {
+            // Si la cabeza está bloqueada, cambiar dirección inmediatamente
+            console.log('Head blocked - changing direction');
+            this.currentState = NavigationStateMachine.STATES.CHANGING_DIRECTION;
+        } else if (feetBlocked && !headBlocked) {
+            // Si solo los pies están bloqueados, intentar saltar
+            console.log('Only feet blocked - attempting to jump');
+            this.currentState = NavigationStateMachine.STATES.JUMPING;
+        } else {
+            // Si no hay obstáculos obvios, volver a intentar moverse
+            console.log('Path appears clear - resuming movement');
+            this.currentState = NavigationStateMachine.STATES.MOVING;
+        }
+    }
+
+    // Verificar si un bloque es sólido
+    isBlockSolid(block) {
+        if (!block) return false;
+        
+        // Bloques que no son sólidos para el movimiento
+        const nonSolidBlocks = [
+            'air', 'water', 'lava', 'tall_grass', 'grass', 'fern', 'dead_bush',
+            'dandelion', 'poppy', 'blue_orchid', 'allium', 'azure_bluet',
+            'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip',
+            'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
+            'sunflower', 'lilac', 'rose_bush', 'peony', 'wheat', 'carrots',
+            'potatoes', 'beetroots', 'sugar_cane', 'kelp', 'seagrass'
+        ];
+        
+        return !nonSolidBlocks.includes(block.name);
+    }
+
+    // Manejar estado JUMPING
+    async handleJumping() {
+        console.log('Executing jump sequence...');
+        
+        const positionBefore = this.actions.position();
+        
+        try {
+            // Saltar y intentar moverse inmediatamente sin sleep largo
+            this.actions.jump();
+            await this.sleep(200); // Tiempo mínimo para que inicie el salto
+            
+            // Intentar moverse mientras está saltando
+            await this.actions.step(this.targetDirection);
+            
+            // Verificar si se movió
+            const positionAfter = this.actions.position();
+            
+            if (this.positionsEqual(positionBefore, positionAfter)) {
+                console.log('Jump sequence failed - changing direction');
+                this.currentState = NavigationStateMachine.STATES.CHANGING_DIRECTION;
+            } else {
+                console.log('Jump and move sequence completed successfully');
+                this.lastPosition = positionAfter;
+                this.currentState = NavigationStateMachine.STATES.MOVING;
+            }
+            
+        } catch (error) {
+            console.log('Jump sequence failed - changing direction');
+            this.currentState = NavigationStateMachine.STATES.CHANGING_DIRECTION;
+        }
+    }
+
+    // Manejar estado CHANGING_DIRECTION
+    async handleChangingDirection() {
+        console.log('Executing direction change...');
+        
+        // Cambiar a la siguiente dirección en el orden: north -> east -> south -> west -> north...
+        this.currentDirectionIndex = (this.currentDirectionIndex + 1) % this.directions.length;
+        this.targetDirection = this.directions[this.currentDirectionIndex];
+        
+        console.log(`Direction changed to: ${this.targetDirection}`);
+        
+        // Orientar el bot hacia la nueva dirección SOLO cuando cambia de dirección
+        const directionOffset = this.getDirectionOffset(this.targetDirection);
+        await this.actions.look(directionOffset.yaw, 0);
+        
+        // Volver al estado de movimiento sin delay largo
+        this.currentState = NavigationStateMachine.STATES.MOVING;
+    }
+
+    // Obtener offset de dirección y ángulo de rotación
+    getDirectionOffset(direction) {
+        const offsets = {
+            north: { x: 0, z: -1, yaw: Math.PI },
+            south: { x: 0, z: 1, yaw: 0 },
+            west: { x: -1, z: 0, yaw: Math.PI / 2 },       
+            east: { x: 1, z: 0, yaw: -Math.PI / 2 }
         };
+        return offsets[direction] || offsets.north;
+    }
+
+    // Detener la máquina de estados
+    stop() {
+        console.log('Stopping autonomous navigation');
+        this.isRunning = false;
+        this.currentState = NavigationStateMachine.STATES.IDLE;
+    }
+
+    // Obtener estado actual para debugging
+    getState() {
+        return {
+            currentState: this.currentState,
+            targetDirection: this.targetDirection,
+            isRunning: this.isRunning,
+            position: this.actions.position()
+        };
+    }
+
+    // Cambiar dirección manualmente (útil para debugging)
+    setDirection(direction) {
+        if (this.directions.includes(direction)) {
+            this.targetDirection = direction;
+            this.currentDirectionIndex = this.directions.indexOf(direction);
+            console.log(`Manual direction change to: ${direction}`);
+        } else {
+            console.log(`Invalid direction: ${direction}`);
+        }
     }
 
     // Utilidad para pausas
     sleep(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
-
-    // Comportamiento reactivo: huir si recibe daño
-    setupDefensiveBehavior() {
-        let lastHealth = this.bot.health;
-        
-        this.bot.on('health', () => {
-            if (this.bot.health < lastHealth) {
-                console.log('Taking damage! Attempting to flee...');
-                this.stop(); // Detener comportamiento actual
-                
-                // Mover aleatoriamente para escapar
-                this.quickEscape();
-            }
-            lastHealth = this.bot.health;
-        });
-    }
-
-    // Escape rápido
-    async quickEscape() {
-        const directions = ['north', 'south', 'east', 'west'];
-        
-        for (let i = 0; i < 3; i++) {
-            try {
-                const randomDirection = directions[Math.floor(Math.random() * directions.length)];
-                await this.actions.step(randomDirection);
-                await this.sleep(200);
-            } catch (error) {
-                // Si no puede moverse, intenta saltar
-                this.actions.jump();
-                await this.sleep(300);
-            }
-        }
-    }
 }
 
-module.exports = BotBehaviors;
+module.exports = NavigationStateMachine;

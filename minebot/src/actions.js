@@ -4,7 +4,6 @@ const { Vec3 } = require("vec3");
 class BotActions {
     constructor(bot) {
         this.bot = bot;
-        this.chestWindow = null;
     }
 
     // Método para hacer un paso en una dirección cardinal
@@ -24,40 +23,14 @@ class BotActions {
         const currentPos = this.bot.entity.position.floored();
         const targetPos = currentPos.offset(offset.x, 0, offset.z);
 
-        // Buscar el nivel Y correcto (permite saltar 1 bloque o caer hasta 6)
-        const MAX_JUMP = 1;
-        const MAX_FALL = 6;
-        
-        let validTarget = null;
-        
-        for (let dy = MAX_JUMP; dy >= -MAX_FALL; dy--) {
-            const testPos = targetPos.offset(0, dy, 0);
-            const blockBelow = this.bot.blockAt(testPos.offset(0, -1, 0));
-            const blockAt = this.bot.blockAt(testPos);
-            const blockAbove = this.bot.blockAt(testPos.offset(0, 1, 0));
-
-            const solidBelow = blockBelow && blockBelow.boundingBox === 'block';
-            const spaceAt = !blockAt || blockAt.boundingBox === 'empty';
-            const spaceAbove = !blockAbove || blockAbove.boundingBox === 'empty';
-
-            if (solidBelow && spaceAt && spaceAbove) {
-                validTarget = testPos;
-                break;
-            }
-        }
-
-        if (!validTarget) {
-            throw new Error('No se puede mover en esa dirección (bloqueado o muy alto/profundo)');
-        }
-
         // Mirar en la dirección del movimiento
-        await this.bot.look(offset.yaw, 0, true);
+        await this.look(offset.yaw, 0);
 
-        // Usar pathfinder para moverse
-        const goal = new GoalBlock(validTarget.x, validTarget.y, validTarget.z);
+        // Usar pathfinder para moverse un bloque
+        const goal = new GoalBlock(targetPos.x, targetPos.y, targetPos.z);
         await this.bot.pathfinder.goto(goal);
         
-        console.log(`Bot moved ${direction} to position: ${validTarget.x}, ${validTarget.y}, ${validTarget.z}`);
+        console.log(`Bot stepped ${direction} to position: ${targetPos.x}, ${targetPos.y}, ${targetPos.z}`);
         return true;
     }
 
@@ -65,12 +38,7 @@ class BotActions {
     async look(yaw, pitch = 0) {
         await this.bot.look(yaw, pitch, true);
         console.log(`Bot looked to yaw: ${yaw}, pitch: ${pitch}`);
-    }
-
-    // Escribir en el chat
-    chat(message) {
-        this.bot.chat(message);
-        console.log(`Bot said: ${message}`);
+        return true;
     }
 
     // Saltar
@@ -80,10 +48,11 @@ class BotActions {
             this.bot.setControlState('jump', false);
         }, 500);
         console.log('Bot jumped');
+        return true;
     }
 
     // Obtener posición actual
-    getPosition() {
+    position() {
         const pos = this.bot.entity.position;
         return {
             x: Math.floor(pos.x),
@@ -92,67 +61,36 @@ class BotActions {
         };
     }
 
-    // Obtener inventario
-    getInventory() {
-        return this.bot.inventory.items().map(item => ({
-            name: item.name,
-            count: item.count,
-            slot: item.slot
-        }));
-    }
-
-    // Obtener información vital (salud, hambre)
-    getVitals() {
-        return {
-            health: this.bot.health,
-            food: this.bot.food,
-            oxygen: this.bot.oxygenLevel
-        };
-    }
-
-    // Equipar item
-    async equip(itemName, destination = 'hand') {
-        const item = this.bot.inventory.items().find(i => i.name === itemName);
-        if (!item) {
-            throw new Error(`Item '${itemName}' no encontrado en el inventario`);
-        }
+    // Encontrar el bloque más cercano de un tipo específico
+    find_block(blockType, maxDistance = 16) {
+        const block = this.bot.findBlock({
+            matching: (block) => block.name === blockType,
+            maxDistance: maxDistance
+        });
         
-        await this.bot.equip(item, destination);
-        console.log(`Equipped ${itemName} in ${destination}`);
-        return true;
+        if (block) {
+            return {
+                x: block.position.x,
+                y: block.position.y,
+                z: block.position.z,
+                name: block.name
+            };
+        }
+        return null;
     }
 
-    // Cavar bloque
-    async digBlock(x, y, z) {
+    // Obtener información del bloque en una posición específica
+    block_at(x, y, z) {
         const block = this.bot.blockAt(new Vec3(x, y, z));
-        if (!block) {
-            throw new Error('No hay bloque en esa posición');
+        if (block) {
+            return {
+                name: block.name,
+                type: block.type,
+                position: { x, y, z },
+                boundingBox: block.boundingBox
+            };
         }
-        if (!this.bot.canDigBlock(block)) {
-            throw new Error('No se puede cavar este bloque');
-        }
-
-        await this.bot.dig(block);
-        console.log(`Dug block ${block.name} at ${x}, ${y}, ${z}`);
-        return true;
-    }
-
-    // Colocar bloque
-    async placeBlock(itemName, x, y, z, face = new Vec3(0, 1, 0)) {
-        const referenceBlock = this.bot.blockAt(new Vec3(x, y, z));
-        if (!referenceBlock) {
-            throw new Error('Bloque de referencia no encontrado');
-        }
-
-        const item = this.bot.inventory.items().find(i => i.name === itemName);
-        if (!item) {
-            throw new Error(`Item '${itemName}' no encontrado en el inventario`);
-        }
-
-        await this.bot.equip(item, 'hand');
-        await this.bot.placeBlock(referenceBlock, face);
-        console.log(`Placed ${itemName} at ${x}, ${y + 1}, ${z}`);
-        return true;
+        return null;
     }
 }
 

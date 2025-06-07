@@ -3,7 +3,7 @@ const { pathfinder, Movements } = require('mineflayer-pathfinder');
 const { mineflayer: mineflayerViewer } = require('prismarine-viewer');
 
 const BotActions = require('./actions');
-const BotBehaviors = require('./behaviors');
+const NavigationStateMachine = require('./behaviors');
 
 // Configuración del bot
 const BOT_CONFIG = {
@@ -23,9 +23,9 @@ class MinecraftBot {
     constructor() {
         this.bot = null;
         this.actions = null;
-        this.behaviors = null;
+        this.stateMachine = null;
         this.isReady = false;
-        this.viewerStarted = false; // Flag para evitar múltiples viewers
+        this.viewerStarted = false;
     }
 
     async start() {
@@ -41,7 +41,6 @@ class MinecraftBot {
         this.setupEvents();
         
         return new Promise((resolve, reject) => {
-            // Solo manejar el spawn UNA VEZ aquí
             this.bot.once('spawn', () => {
                 resolve(this);
             });
@@ -66,7 +65,7 @@ class MinecraftBot {
             console.log(`Bot logged in as ${this.bot.username}`);
         });
 
-        // Evento cuando el bot hace spawn - REMOVER EL DUPLICATE
+        // Evento cuando el bot hace spawn
         this.bot.once('spawn', () => {
             this.onSpawn();
         });
@@ -78,14 +77,6 @@ class MinecraftBot {
             this.viewerStarted = false;
         });
 
-        // Evento cuando el bot recibe un mensaje de chat
-        this.bot.on('chat', (username, message) => {
-            if (username === this.bot.username) return;
-            
-            console.log(`<${username}> ${message}`);
-            this.handleChatCommand(username, message);
-        });
-
         // Evento cuando el bot recibe daño
         this.bot.on('health', () => {
             if (this.bot.health < 20) {
@@ -95,7 +86,6 @@ class MinecraftBot {
     }
 
     onSpawn() {
-        // Evitar ejecución múltiple
         if (this.isReady) {
             console.log('onSpawn called but bot is already ready, skipping...');
             return;
@@ -103,54 +93,45 @@ class MinecraftBot {
 
         console.log('Bot spawned successfully!');
         
-        // 1. Configurar movimiento PRIMERO
+        // 1. Configurar movimiento
         this.setupMovement();
         
-        // 2. Configurar viewer INMEDIATAMENTE después (solo si no está iniciado)
+        // 2. Configurar viewer
         if (!this.viewerStarted) {
             this.setupViewer();
         }
         
-        // 3. Teleportarse al spawn point
-        const spawnPos = this.bot.spawnPoint;
-        this.bot.chat(`/tp @s ${spawnPos.x} ${spawnPos.y} ${spawnPos.z}`);
-        
-        // 4. Inicializar sistemas DESPUÉS del viewer
+        // 3. Inicializar sistemas
         this.actions = new BotActions(this.bot);
-        this.behaviors = new BotBehaviors(this.bot, this.actions);
-        
-        // 5. Configurar comportamientos defensivos
-        this.behaviors.setupDefensiveBehavior();
-        
-        // 6. Anunciar que está listo
-        this.bot.chat("JSBot is ready! Type 'help' for commands.");
+        this.stateMachine = new NavigationStateMachine(this.bot, this.actions);
         
         this.isReady = true;
         
-        // 7. Iniciar comportamiento por defecto CON DELAY
-        this.startDefaultBehavior();
+        console.log('Bot initialization complete. Starting autonomous navigation...');
+        
+        // Iniciar navegación autónoma después de un breve delay
+        setTimeout(() => {
+            this.startAutonomousMode();
+        }, 2000);
     }
 
     setupMovement() {
-        const mcData = require('minecraft-data')(this.bot.version);
         const movements = new Movements(this.bot);
         
-        // Configuración de movimiento
+        // Configuración básica de movimiento
         movements.scafoldingBlocks = [];
         movements.allow1by1towers = false;
         movements.canDig = false;
-        movements.allowWalkOnWater = true;
-        movements.allowSwimming = true;
+        movements.allowWalkOnWater = false;
+        movements.allowSwimming = false;
         movements.allowParkour = false;
         movements.allowSprinting = false;
-        movements.jumpCost = 1000;
         
         this.bot.pathfinder.setMovements(movements);
         console.log('Movement system configured');
     }
 
     setupViewer() {
-        // Evitar múltiples intentos de crear el viewer
         if (this.viewerStarted) {
             console.log('Viewer already started, skipping...');
             return;
@@ -163,96 +144,12 @@ class MinecraftBot {
             this.viewerStarted = true;
         } catch (error) {
             console.error('Failed to start viewer:', error);
-            console.error('Stack trace:', error.stack);
         }
     }
 
-    async startDefaultBehavior() {
-        // Esperar un poco antes de empezar comportamientos complejos
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        
-        console.log('Starting default behavior: moving straight north');
-        
-        try {
-            // Mover en línea recta hacia el norte por 10 pasos
-            await this.behaviors.moveStraight('north', 10);
-            
-            // Después hacer un cuadrado
-            console.log('Now moving in a square pattern');
-            await this.behaviors.moveInSquare(5);
-            
-        } catch (error) {
-            console.error('Error in default behavior:', error.message);
-        }
-    }
-
-    handleChatCommand(username, message) {
-        const cmd = message.toLowerCase().trim();
-        
-        switch (cmd) {
-            case 'help':
-                this.bot.chat('Commands: stop, north, south, east, west, square, explore, status, pos');
-                break;
-                
-            case 'stop':
-                this.behaviors.stop();
-                this.bot.chat('Stopped current behavior');
-                break;
-                
-            case 'north':
-            case 'south':
-            case 'east':
-            case 'west':
-                this.behaviors.stop();
-                this.behaviors.moveStraight(cmd, 5).catch(err => {
-                    this.bot.chat(`Cannot move ${cmd}: ${err.message}`);
-                });
-                break;
-                
-            case 'square':
-                this.behaviors.stop();
-                this.behaviors.moveInSquare(4).catch(err => {
-                    this.bot.chat(`Cannot move in square: ${err.message}`);
-                });
-                break;
-                
-            case 'explore':
-                this.behaviors.stop();
-                this.behaviors.explore(30000).catch(err => {
-                    this.bot.chat(`Cannot explore: ${err.message}`);
-                });
-                break;
-                
-            case 'status':
-                const status = this.behaviors.getStatus();
-                this.bot.chat(`Behavior: ${status.currentBehavior || 'none'}, Running: ${status.isRunning}`);
-                break;
-                
-            case 'pos':
-                const pos = this.actions.getPosition();
-                this.bot.chat(`Position: ${pos.x}, ${pos.y}, ${pos.z}`);
-                break;
-        }
-    }
-
-    // Método para ejecutar comandos programáticamente
-    async executeCommand(command, ...args) {
-        if (!this.isReady) {
-            throw new Error('Bot is not ready yet');
-        }
-        
-        switch (command) {
-            case 'move':
-                return await this.behaviors.moveStraight(args[0], args[1] || 1);
-            case 'square':
-                return await this.behaviors.moveInSquare(args[0] || 4);
-            case 'explore':
-                return await this.behaviors.explore(args[0] || 30000);
-            case 'stop':
-                return this.behaviors.stop();
-            default:
-                throw new Error(`Unknown command: ${command}`);
-        }
+    startAutonomousMode() {
+        console.log('Starting autonomous navigation mode...');
+        this.stateMachine.start('north');
     }
 }
 
@@ -262,11 +159,15 @@ async function main() {
         const minecraftBot = new MinecraftBot();
         await minecraftBot.start();
         
-        console.log('Bot is running! Press Ctrl+C to stop.');
+        console.log('Bot is running autonomously! Press Ctrl+C to stop.');
+        console.log(`3D Viewer available at http://localhost:${VIEWER_CONFIG.port}`);
         
         // Manejar cierre graceful
         process.on('SIGINT', () => {
             console.log('\nShutting down bot...');
+            if (minecraftBot.stateMachine) {
+                minecraftBot.stateMachine.stop();
+            }
             if (minecraftBot.bot) {
                 minecraftBot.bot.quit();
             }
