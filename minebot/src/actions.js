@@ -1,75 +1,138 @@
+/** *************************************************************************************
+   
+    * @file        actions.js
+    * @brief       Implementation of basic bot actions and world interaction system
+    * @author      Agustín I. Galdeman
+    * @author      Ian A. Dib
+    * @author      Luciano S. Cordero
+    * @date        2025-06-07
+    * @version     1.0
+
+    ************************************************************************************* */
+
+
+/* **************************************************************************************
+    * INCLUDES AND DEPENDENCIES *
+   ************************************************************************************** */
+
 const { GoalBlock } = require('mineflayer-pathfinder').goals;
 const { Vec3 } = require("vec3");
 
-class BotActions {
-    constructor(bot) {
-        this.bot = bot;
-    }
 
-    // Método para hacer un paso en una dirección cardinal
-    async step(direction) {
-        const directions = {
-            north: { x: 0, z: -1, yaw: Math.PI },
-            south: { x: 0, z: 1, yaw: 0 },
-            west: { x: -1, z: 0, yaw: Math.PI / 2 },
-            east: { x: 1, z: 0, yaw: -Math.PI / 2 }
-        };
+/* **************************************************************************************
+    * CONSTANTS AND STATIC DATA *
+   ************************************************************************************** */
 
-        if (!directions[direction]) {
-            throw new Error(`Dirección inválida: ${direction}`);
-        }
+// Direction mappings with movement offsets and yaw rotations
+const DIRECTION_MAPPINGS =
+{
+    north: { x: 0, z: -1, yaw: Math.PI },
+    south: { x: 0, z: 1, yaw: 0 },
+    west: { x: -1, z: 0, yaw: Math.PI / 2 },
+    east: { x: 1, z: 0, yaw: -Math.PI / 2 }
+};
 
-        const offset = directions[direction];
+// Default maximum distance for block searching operations
+const DEFAULT_SEARCH_DISTANCE = 16;
+
+// Jump control duration in milliseconds
+const JUMP_DURATION = 500;
+
+
+/* **************************************************************************************
+    * CLASS IMPLEMENTATIONS *
+   ************************************************************************************** */
+
+/**
+ * @class BotActions
+ * @brief Provides basic movement, interaction and world query capabilities for the bot
+ */
+class BotActions
+{
+    /**
+     * @brief Constructor initializes the bot actions system
+     * @param {Object} bot - Mineflayer bot instance
+     */
+    constructor(bot)
+    {this.bot = bot;}
+
+    //* MOVEMENT AND NAVIGATION
+
+    /**
+     * @brief Executes a single step movement in a cardinal direction
+     * @param {string} direction - Cardinal direction (north, south, east, west)
+     * @returns {boolean} True if movement succeeded, false otherwise
+     * @throws {Error} If invalid direction is provided
+     */
+    async step(direction)
+    {
+        if (!DIRECTION_MAPPINGS[direction])
+            {throw new Error(`Invalid direction: ${direction}`);}
+
+        const offset = DIRECTION_MAPPINGS[direction];
         const currentPos = this.bot.entity.position.floored();
         const targetPos = currentPos.offset(offset.x, 0, offset.z);
 
-        // NO cambiar la dirección de vista aquí si ya está configurada
-        // Esto evita interrumpir movimientos en progreso
-        
-        console.log(`Attempting to move from (${currentPos.x}, ${currentPos.y}, ${currentPos.z}) to (${targetPos.x}, ${targetPos.y}, ${targetPos.z})`);
+        console.log(`Attempting to move from (${currentPos.x}, ${currentPos.y}, 
+                   ${currentPos.z}) to (${targetPos.x}, ${targetPos.y}, ${targetPos.z})`);
 
-        try {
-            // Usar pathfinder para moverse un bloque
+        try
+        {
             const goal = new GoalBlock(targetPos.x, targetPos.y, targetPos.z);
-            
-            // Esperar a que el movimiento se complete completamente
             await this.bot.pathfinder.goto(goal);
             
-            // Verificar posición final después del movimiento
             const finalPos = this.bot.entity.position.floored();
             const moved = !(currentPos.x === finalPos.x && currentPos.y === finalPos.y && currentPos.z === finalPos.z);
             
-            if (moved) {
-                console.log(`Bot successfully stepped ${direction} to position: ${finalPos.x}, ${finalPos.y}, ${finalPos.z}`);
-            } else {
-                console.log(`Bot failed to move ${direction}, still at: ${finalPos.x}, ${finalPos.y}, ${finalPos.z}`);
-            }
+            if (moved)
+                {console.log(`Bot successfully stepped ${direction} to position: ${finalPos.x}, ${finalPos.y}, ${finalPos.z}`);}
+            
+            else
+                {console.log(`Bot failed to move ${direction}, still at: ${finalPos.x}, ${finalPos.y}, ${finalPos.z}`);}
             
             return moved;
-        } catch (error) {
+        }
+        
+        catch (error)
+        {
             console.log(`Movement failed: ${error.message}`);
             return false;
         }
     }
 
-    // Mirar en una dirección específica
-    async look(yaw, pitch = 0) {
+    /**
+     * @brief Executes a jump action with timed control state management
+     * @returns {boolean} Always returns true after jump execution
+     */
+    jump()
+    {
+        this.bot.setControlState('jump', true);
+        setTimeout(() => {this.bot.setControlState('jump', false);}, JUMP_DURATION);
+        console.log('Bot jumped');
+        return true;
+    }
+
+    //* VIEW AND ORIENTATION CONTROL
+
+    /**
+     * @brief Adjusts bot's viewing direction to specified yaw and pitch
+     * @param {number} yaw - Horizontal rotation angle in radians
+     * @param {number} pitch - Vertical rotation angle in radians (default: 0)
+     * @returns {boolean} Always returns true after look completion
+     */
+    async look(yaw, pitch = 0)
+    {
         await this.bot.look(yaw, pitch, true);
         console.log(`Bot looked to yaw: ${yaw}, pitch: ${pitch}`);
         return true;
     }
 
-    // Saltar
-    jump() {
-        this.bot.setControlState('jump', true);
-        setTimeout(() => {
-            this.bot.setControlState('jump', false);
-        }, 500);
-        console.log('Bot jumped');
-        return true;
-    }
+    //* POSITION AND WORLD QUERIES
 
-    // Obtener posición actual
+    /**
+     * @brief Retrieves bot's current floored position coordinates
+     * @returns {Object} Position object with x, y, z integer coordinates
+     */
     position() {
         const pos = this.bot.entity.position;
         return {
@@ -79,16 +142,22 @@ class BotActions {
         };
     }
 
-
-
-    // Encontrar el bloque más cercano de un tipo específico
-    find_block(blockType, maxDistance = 16) {
-        const block = this.bot.findBlock({
+    /**
+     * @brief Locates the nearest block of specified type within search radius
+     * @param {string} blockType - Name of the block type to search for
+     * @param {number} maxDistance - Maximum search distance (default: 16)
+     * @returns {Object|null} Block information object or null if not found
+     */
+    find_block(blockType, maxDistance = DEFAULT_SEARCH_DISTANCE)
+    {
+        const block = this.bot.findBlock
+        ({
             matching: (block) => block.name === blockType,
             maxDistance: maxDistance
         });
         
-        if (block) {
+        if (block)
+        {
             return {
                 x: block.position.x,
                 y: block.position.y,
@@ -96,13 +165,22 @@ class BotActions {
                 name: block.name
             };
         }
+        
         return null;
     }
 
-    // Obtener información del bloque en una posición específica
-    block_at(x, y, z) {
+    /**
+     * @brief Retrieves block information at specific world coordinates
+     * @param {number} x - X coordinate
+     * @param {number} y - Y coordinate
+     * @param {number} z - Z coordinate
+     * @returns {Object|null} Block information object or null if no block exists
+     */
+    block_at(x, y, z)
+    {
         const block = this.bot.blockAt(new Vec3(x, y, z));
-        if (block) {
+        if (block)
+        {
             return {
                 name: block.name,
                 type: block.type,

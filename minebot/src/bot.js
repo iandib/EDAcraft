@@ -1,3 +1,20 @@
+/** *************************************************************************************
+   
+    * @file        bot.js
+    * @brief       Main bot controller and initialization system for Minecraft automation
+    * @author      Agustín I. Galdeman
+    * @author      Ian A. Dib
+    * @author      Luciano S. Cordero
+    * @date        2025-06-07
+    * @version     1.0
+
+    ************************************************************************************* */
+
+
+/* **************************************************************************************
+    * INCLUDES AND DEPENDENCIES *
+   ************************************************************************************** */
+
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements } = require('mineflayer-pathfinder');
 const { mineflayer: mineflayerViewer } = require('prismarine-viewer');
@@ -5,22 +22,49 @@ const { mineflayer: mineflayerViewer } = require('prismarine-viewer');
 const BotActions = require('./actions');
 const NavigationStateMachine = require('./behaviors');
 
-// Configuración del bot
-const BOT_CONFIG = {
+
+/* **************************************************************************************
+    * CONSTANTS AND STATIC DATA *
+   ************************************************************************************** */
+
+// Bot connection and authentication configuration
+const BOT_CONFIG =
+{
     host: 'localhost',
     port: 25565,
     username: 'JSBot',
     version: '1.21.4'
 };
 
-// Configuración del viewer
-const VIEWER_CONFIG = {
+// 3D viewer web interface configuration
+const VIEWER_CONFIG =
+{
     port: 3007,
     firstPerson: false
 };
 
-class MinecraftBot {
-    constructor() {
+// Bot initialization delay in milliseconds
+const INITIALIZATION_DELAY = 2000;
+
+// Connection timeout duration in milliseconds
+const CONNECTION_TIMEOUT = 30000;
+
+
+/* **************************************************************************************
+    * CLASS IMPLEMENTATIONS *
+   ************************************************************************************** */
+
+/**
+ * @class MinecraftBot
+ * @brief Main bot controller handling connection, initialization, and autonomous operation
+ */
+class MinecraftBot
+{
+    /**
+     * @brief Constructor initializes bot controller with default state
+     */
+    constructor()
+    {
         this.bot = null;
         this.actions = null;
         this.stateMachine = null;
@@ -28,80 +72,81 @@ class MinecraftBot {
         this.viewerStarted = false;
     }
 
-    async start() {
+    //* CONNECTION AND INITIALIZATION
+
+    /**
+     * @brief Establishes connection to Minecraft server and initializes bot systems
+     * @returns {Promise<MinecraftBot>} Promise resolving to initialized bot instance
+     * @throws {Error} If connection fails or times out
+     */
+    async start()
+    {
         console.log('Creating Minecraft bot...');
         
-        // Crear el bot
         this.bot = mineflayer.createBot(BOT_CONFIG);
-        
-        // Cargar plugins
         this.bot.loadPlugin(pathfinder);
-        
-        // Configurar eventos
         this.setupEvents();
         
-        return new Promise((resolve, reject) => {
-            this.bot.once('spawn', () => {
-                resolve(this);
-            });
+        return new Promise((resolve, reject) =>
+        {
+            this.bot.once('spawn', () => {resolve(this);});
             
-            this.bot.on('error', (err) => {
+            this.bot.on('error', (err) => 
+            {
                 console.error('Bot error:', err);
                 reject(err);
             });
 
-            // Timeout de conexión
-            setTimeout(() => {
-                if (!this.isReady) {
-                    reject(new Error('Bot connection timeout'));
-                }
-            }, 30000);
+            setTimeout(() => 
+            {
+                if (!this.isReady)
+                {reject(new Error('Bot connection timeout'));}
+            }, CONNECTION_TIMEOUT);
         });
     }
 
-    setupEvents() {
-        // Evento cuando el bot se conecta
-        this.bot.on('login', () => {
-            console.log(`Bot logged in as ${this.bot.username}`);
-        });
+    /**
+     * @brief Configures bot event handlers for connection lifecycle management
+     */
+    setupEvents()
+    {
+        this.bot.on('login', () =>
+        {console.log(`Bot logged in as ${this.bot.username}`);});
 
-        // Evento cuando el bot hace spawn
-        this.bot.once('spawn', () => {
-            this.onSpawn();
-        });
+        this.bot.once('spawn', () =>
+        {this.onSpawn();});
 
-        // Evento cuando el bot se desconecta
-        this.bot.on('end', () => {
+        this.bot.on('end', () =>
+        {
             console.log('Bot disconnected from server');
             this.isReady = false;
             this.viewerStarted = false;
         });
 
-        // Evento cuando el bot recibe daño
-        this.bot.on('health', () => {
-            if (this.bot.health < 20) {
-                console.log(`Health: ${this.bot.health}/20, Food: ${this.bot.food}/20`);
-            }
+        this.bot.on('health', () =>
+        {
+            if (this.bot.health < 20)
+            {console.log(`Health: ${this.bot.health}/20, Food: ${this.bot.food}/20`);}
         });
     }
 
+    /**
+     * @brief Handles bot spawn event with system initialization and autonomous mode startup
+     */
     onSpawn() {
-        if (this.isReady) {
+        if (this.isReady)
+        {
             console.log('onSpawn called but bot is already ready, skipping...');
             return;
         }
 
         console.log('Bot spawned successfully!');
         
-        // 1. Configurar movimiento
         this.setupMovement();
         
-        // 2. Configurar viewer
-        if (!this.viewerStarted) {
-            this.setupViewer();
-        }
+        if (!this.viewerStarted)
+            {this.setupViewer();}
         
-        // 3. Inicializar sistemas
         this.actions = new BotActions(this.bot);
         this.stateMachine = new NavigationStateMachine(this.bot, this.actions);
         
@@ -109,16 +154,19 @@ class MinecraftBot {
         
         console.log('Bot initialization complete. Starting autonomous navigation...');
         
-        // Iniciar navegación autónoma después de un breve delay
-        setTimeout(() => {
-            this.startAutonomousMode();
-        }, 2000);
+        setTimeout(() =>
+        {this.startAutonomousMode();}, INITIALIZATION_DELAY);
     }
 
-    setupMovement() {
+    //* SYSTEM CONFIGURATION
+
+    /**
+     * @brief Configures pathfinding movement system with safety constraints
+     */
+    setupMovement()
+    {
         const movements = new Movements(this.bot);
         
-        // Configuración básica de movimiento
         movements.scafoldingBlocks = [];
         movements.allow1by1towers = false;
         movements.canDig = false;
@@ -131,58 +179,79 @@ class MinecraftBot {
         console.log('Movement system configured');
     }
 
-    setupViewer() {
-        if (this.viewerStarted) {
+    /**
+     * @brief Initializes 3D web viewer for bot monitoring and debugging
+     */
+    setupViewer()
+    {
+        if (this.viewerStarted)
+        {
             console.log('Viewer already started, skipping...');
             return;
         }
 
-        try {
+        try
+        {
             console.log('Starting 3D viewer...');
             mineflayerViewer(this.bot, VIEWER_CONFIG);
             console.log(`3D Viewer started at http://localhost:${VIEWER_CONFIG.port}`);
             this.viewerStarted = true;
-        } catch (error) {
-            console.error('Failed to start viewer:', error);
         }
+        
+        catch (error)
+        {console.error('Failed to start viewer:', error);}
     }
 
-    startAutonomousMode() {
+    //* AUTONOMOUS OPERATION
+
+    /**
+     * @brief Initiates autonomous navigation mode with default northward direction
+     */
+    startAutonomousMode()
+    {
         console.log('Starting autonomous navigation mode...');
         this.stateMachine.start('north');
     }
 }
 
-// Función principal
-async function main() {
-    try {
+
+/* **************************************************************************************
+    * MAIN EXECUTION FUNCTIONS *
+   ************************************************************************************** */
+
+/**
+ * @brief Main application entry point with error handling and graceful shutdown
+ */
+async function main()
+{
+    try
+    {
         const minecraftBot = new MinecraftBot();
         await minecraftBot.start();
         
         console.log('Bot is running autonomously! Press Ctrl+C to stop.');
         console.log(`3D Viewer available at http://localhost:${VIEWER_CONFIG.port}`);
         
-        // Manejar cierre graceful
-        process.on('SIGINT', () => {
+        process.on('SIGINT', () =>
+        {
             console.log('\nShutting down bot...');
-            if (minecraftBot.stateMachine) {
-                minecraftBot.stateMachine.stop();
-            }
-            if (minecraftBot.bot) {
-                minecraftBot.bot.quit();
-            }
+            if (minecraftBot.stateMachine)
+                {minecraftBot.stateMachine.stop();}
+            
+            if (minecraftBot.bot)
+                {minecraftBot.bot.quit();}
             process.exit(0);
         });
-        
-    } catch (error) {
+    }
+    
+    catch (error)
+    {
         console.error('Failed to start bot:', error);
         process.exit(1);
     }
 }
 
-// Ejecutar si este archivo se ejecuta directamente
-if (require.main === module) {
-    main();
-}
+if (require.main === module) 
+    {main();}
 
 module.exports = MinecraftBot;
