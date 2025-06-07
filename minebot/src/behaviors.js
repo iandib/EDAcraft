@@ -6,12 +6,12 @@
     * @author      Ian A. Dib
     * @author      Luciano S. Cordero
     * @date        2025-06-07
-    * @version     1.0
+    * @version     1.0 - Modified for continuous movement
 
     ************************************************************************************* */
 
 // TODO fix:
-//! Si el terreno disminuye de altura, el bot no sigue avanzando
+//? Si el terreno disminuye de altura, el bot no sigue avanzando
 //! Parece que cuando cambia de dirección, lo hace dos veces en vez de una
 
 
@@ -22,8 +22,8 @@
 // Available cardinal directions for navigation
 const NAVIGATION_DIRECTIONS = ['north', 'east', 'south', 'west'];
 
-// Maximum consecutive failures before direction change
-const MAX_CONSECUTIVE_FAILURES = 3;
+// Maximum consecutive head-level blocks before direction change
+const MAX_HEAD_BLOCKS = 2;
 
 // Direction offset mappings with yaw angles
 const DIRECTION_OFFSETS =
@@ -38,16 +38,13 @@ const DIRECTION_OFFSETS =
 const STATE_CYCLE_DELAY = 100;
 
 // Movement execution delay in milliseconds
-const MOVEMENT_DELAY = 200;
+const MOVEMENT_DELAY = 150;
 
 // Direction change stabilization delay in milliseconds
 const DIRECTION_CHANGE_DELAY = 300;
 
-// Jump sequence timing delay in milliseconds
-const JUMP_SEQUENCE_DELAY = 300;
-
-// Maximum depth for solid ground detection
-const MAX_GROUND_CHECK_DEPTH = 5;
+// Jump timing delay in milliseconds
+const JUMP_DELAY = 100;
 
 
 /* **************************************************************************************
@@ -56,7 +53,7 @@ const MAX_GROUND_CHECK_DEPTH = 5;
 
 /**
  * @class NavigationStateMachine
- * @brief Autonomous navigation system using finite state machine for obstacle handling
+ * @brief Autonomous navigation system using continuous movement with obstacle detection
  */
 class NavigationStateMachine
 {
@@ -74,9 +71,8 @@ class NavigationStateMachine
         this.isRunning = false;
         this.directions = NAVIGATION_DIRECTIONS;
         this.currentDirectionIndex = 0;
-        this.lastPosition = null;
-        this.consecutiveFailures = 0;
-        this.maxConsecutiveFailures = MAX_CONSECUTIVE_FAILURES;
+        this.consecutiveHeadBlocks = 0;
+        this.isJumping = false;
     }
 
     //* STATE DEFINITIONS
@@ -89,8 +85,6 @@ class NavigationStateMachine
     {
         IDLE: 'IDLE',
         MOVING: 'MOVING',
-        CHECKING_OBSTACLES: 'CHECKING_OBSTACLES',
-        JUMPING: 'JUMPING',
         CHANGING_DIRECTION: 'CHANGING_DIRECTION'
     };
 
@@ -107,18 +101,16 @@ class NavigationStateMachine
         this.currentDirectionIndex = this.directions.indexOf(direction);
         this.isRunning = true;
         this.currentState = NavigationStateMachine.STATES.MOVING;
-        this.consecutiveFailures = 0;
+        this.consecutiveHeadBlocks = 0;
         
         const directionOffset = this.getDirectionOffset(this.targetDirection);
         await this.actions.look(directionOffset.yaw, 0);
-        
-        this.lastPosition = this.actions.position();
         
         await this.run();
     }
 
     /**
-     * @brief Main state machine execution loop with error handling
+     * @brief Main state machine execution loop with continuous movement
      */
     async run()
     {
@@ -134,12 +126,6 @@ class NavigationStateMachine
                     case NavigationStateMachine.STATES.MOVING:
                         await this.handleMoving();
                         break;
-                    case NavigationStateMachine.STATES.CHECKING_OBSTACLES:
-                        await this.handleCheckingObstacles();
-                        break;
-                    case NavigationStateMachine.STATES.JUMPING:
-                        await this.handleJumping();
-                        break;
                     case NavigationStateMachine.STATES.CHANGING_DIRECTION:
                         await this.handleChangingDirection();
                         break;
@@ -151,17 +137,8 @@ class NavigationStateMachine
             catch (error)
             {
                 console.error(`Error in state ${this.currentState}:`, error.message);
-                this.consecutiveFailures++;
-                
-                if (this.consecutiveFailures >= this.maxConsecutiveFailures)
-                {
-                    console.log('Too many consecutive failures, changing direction');
-                    this.currentState = NavigationStateMachine.STATES.CHANGING_DIRECTION;
-                    this.consecutiveFailures = 0;
-                } 
-                
-                else 
-                    {this.currentState = NavigationStateMachine.STATES.CHECKING_OBSTACLES;}
+                // En caso de error, continúa intentando moverse
+                this.currentState = NavigationStateMachine.STATES.MOVING;
             }
         }
     }
@@ -188,51 +165,38 @@ class NavigationStateMachine
     }
 
     /**
-     * @brief Handles MOVING state with movement execution and success tracking
+     * @brief Handles MOVING state with continuous movement and obstacle detection
      */
     async handleMoving()
     {
-        console.log(`Moving ${this.targetDirection}...`);
+        // SIEMPRE intentar moverse - esta es la clave del cambio
+        const movementPromise = this.executeMovement();
         
-        try
+        // Verificar obstáculos mientras se mueve
+        const shouldChangeDirection = this.checkForHeadObstacles();
+        
+        if (shouldChangeDirection)
         {
-            const moveSucceeded = await this.actions.step(this.targetDirection);
-            
-            if (moveSucceeded)
-            {
-                console.log(`Successfully moved ${this.targetDirection}`);
-                this.consecutiveFailures = 0;
-                this.lastPosition = this.actions.position();
-                
-                await this.sleep(MOVEMENT_DELAY);
-            }
-            
-            else
-            {
-                console.log('Movement failed, checking obstacles...');
-                this.consecutiveFailures++;
-                this.currentState = NavigationStateMachine.STATES.CHECKING_OBSTACLES;
-            }
+            console.log(`Head obstacle detected ${this.consecutiveHeadBlocks} times, changing direction`);
+            this.currentState = NavigationStateMachine.STATES.CHANGING_DIRECTION;
+            return;
         }
         
-        catch (error)
-        {
-            console.log(`Movement blocked: ${error.message}`);
-            this.consecutiveFailures++;
-            this.currentState = NavigationStateMachine.STATES.CHECKING_OBSTACLES;
-        }
+        // Ejecutar el movimiento
+        await movementPromise;
+        
+        await this.sleep(MOVEMENT_DELAY);
     }
 
     /**
-     * @brief Handles CHECKING_OBSTACLES state with terrain analysis and path decision
+     * @brief Executes movement with simultaneous jump if needed
      */
-    async handleCheckingObstacles()
+    async executeMovement()
     {
-        console.log('Analyzing obstacle pattern...');
-        
         const currentPos = this.actions.position();
         const direction = this.getDirectionOffset(this.targetDirection);
         
+        // Verificar si hay bloque a nivel de pies
         const feetBlock = this.actions.block_at
         (
             currentPos.x + direction.x, 
@@ -240,6 +204,56 @@ class NavigationStateMachine
             currentPos.z + direction.z
         );
         
+        const needsJump = this.isBlockSolid(feetBlock);
+        
+        // Si necesita saltar, ejecutar salto simultáneamente con el movimiento
+        if (needsJump && !this.isJumping)
+        {
+            console.log(`Jumping over ${feetBlock ? feetBlock.name : 'unknown'} while moving ${this.targetDirection}`);
+            this.isJumping = true;
+            this.actions.jump();
+            
+            // Reset jump flag después de un tiempo
+            setTimeout(() => {
+                this.isJumping = false;
+            }, 500);
+            
+            await this.sleep(JUMP_DELAY);
+        }
+        
+        try
+        {
+            // SIEMPRE ejecutar step, sin importar si hay obstáculos menores
+            const moveSucceeded = await this.actions.step(this.targetDirection);
+            
+            if (moveSucceeded)
+            {
+                console.log(`Successfully moved ${this.targetDirection}`);
+                // Reset contador de obstáculos de cabeza si el movimiento fue exitoso
+                this.consecutiveHeadBlocks = 0;
+            }
+            else
+            {
+                console.log(`Movement blocked but continuing to try...`);
+            }
+        }
+        
+        catch (error)
+        {
+            console.log(`Movement error: ${error.message}, but continuing...`);
+        }
+    }
+
+    /**
+     * @brief Checks for head-level obstacles that would require direction change
+     * @returns {boolean} True if direction should be changed
+     */
+    checkForHeadObstacles()
+    {
+        const currentPos = this.actions.position();
+        const direction = this.getDirectionOffset(this.targetDirection);
+        
+        // Verificar bloque a altura de cabeza
         const headBlock = this.actions.block_at
         (
             currentPos.x + direction.x, 
@@ -247,100 +261,29 @@ class NavigationStateMachine
             currentPos.z + direction.z
         );
         
-        const feetBlocked = this.isBlockSolid(feetBlock);
         const headBlocked = this.isBlockSolid(headBlock);
-        
-        console.log(`Feet level: ${feetBlock ? feetBlock.name : 'air'} (blocked: ${feetBlocked})`);
-        console.log(`Head level: ${headBlock ? headBlock.name : 'air'} (blocked: ${headBlocked})`);
         
         if (headBlocked)
         {
-            console.log('Head blocked - changing direction');
-            this.currentState = NavigationStateMachine.STATES.CHANGING_DIRECTION;
-        }
-        
-        else if (feetBlocked && !headBlocked)
-        {
-            console.log('Only feet blocked - attempting to jump');
-            this.currentState = NavigationStateMachine.STATES.JUMPING;
-        } 
-        
-        else if (!feetBlocked && !headBlocked)
-        {
-            let foundSolidGround = false;
-            for (let i = 1; i <= MAX_GROUND_CHECK_DEPTH; i++)
-            {
-                const lowerBlock = this.actions.block_at
-                (
-                    currentPos.x + direction.x,
-                    currentPos.y - i,
-                    currentPos.z + direction.z
-                );
-                
-                if (this.isBlockSolid(lowerBlock))
-                {
-                    foundSolidGround = true;
-                    break;
-                }
-            }
+            this.consecutiveHeadBlocks++;
+            console.log(`Head blocked by ${headBlock.name} (${this.consecutiveHeadBlocks}/${MAX_HEAD_BLOCKS})`);
             
-            if (foundSolidGround)
+            if (this.consecutiveHeadBlocks >= MAX_HEAD_BLOCKS)
             {
-                console.log('Lower terrain detected - resuming movement');
-                this.currentState = NavigationStateMachine.STATES.MOVING;
-            }
-            
-            else if (this.consecutiveFailures >= 2)
-            {
-                console.log('No solid ground found and multiple failures - changing direction');
-                this.currentState = NavigationStateMachine.STATES.CHANGING_DIRECTION;
-            }
-            
-            else
-            {
-                console.log('Path appears clear - resuming movement');
-                this.currentState = NavigationStateMachine.STATES.MOVING;
+                return true; // Cambiar dirección
             }
         }
-    }
-
-    /**
-     * @brief Handles JUMPING state with jump-move sequence execution
-     */
-    async handleJumping()
-    {
-        console.log('Executing jump sequence...');
-        
-        try
+        else
         {
-            this.actions.jump();
-            
-            await this.sleep(JUMP_SEQUENCE_DELAY);
-            
-            const moveSucceeded = await this.actions.step(this.targetDirection);
-            
-            if (moveSucceeded)
+            // Si no hay bloque en la cabeza, resetear contador
+            if (this.consecutiveHeadBlocks > 0)
             {
-                console.log('Jump and move sequence completed successfully');
-                this.consecutiveFailures = 0;
-                this.lastPosition = this.actions.position();
-                this.currentState = NavigationStateMachine.STATES.MOVING;
+                console.log(`Head clear, resetting head block counter`);
+                this.consecutiveHeadBlocks = 0;
             }
-            
-            else
-            {
-                console.log('Jump sequence failed - changing direction');
-                this.consecutiveFailures++;
-                this.currentState = NavigationStateMachine.STATES.CHANGING_DIRECTION;
-            }   
         }
         
-        catch (error)
-        {
-            console.log('Jump sequence failed - changing direction');
-            this.consecutiveFailures++;
-            this.currentState = NavigationStateMachine.STATES.CHANGING_DIRECTION;
-        }
+        return false; // Continuar en la misma dirección
     }
 
     /**
@@ -358,7 +301,7 @@ class NavigationStateMachine
         const directionOffset = this.getDirectionOffset(this.targetDirection);
         await this.actions.look(directionOffset.yaw, 0);
         
-        this.consecutiveFailures = 0;
+        this.consecutiveHeadBlocks = 0;
         this.currentState = NavigationStateMachine.STATES.MOVING;
         
         await this.sleep(DIRECTION_CHANGE_DELAY);
@@ -409,7 +352,8 @@ class NavigationStateMachine
             targetDirection: this.targetDirection,
             isRunning: this.isRunning,
             position: this.actions.position(),
-            consecutiveFailures: this.consecutiveFailures
+            consecutiveHeadBlocks: this.consecutiveHeadBlocks,
+            isJumping: this.isJumping
         };
     }
 
@@ -423,6 +367,7 @@ class NavigationStateMachine
         {
             this.targetDirection = direction;
             this.currentDirectionIndex = this.directions.indexOf(direction);
+            this.consecutiveHeadBlocks = 0;
             console.log(`Manual direction change to: ${direction}`);
         }
         
