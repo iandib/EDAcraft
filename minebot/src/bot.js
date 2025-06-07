@@ -25,6 +25,7 @@ class MinecraftBot {
         this.actions = null;
         this.behaviors = null;
         this.isReady = false;
+        this.viewerStarted = false; // Flag para evitar múltiples viewers
     }
 
     async start() {
@@ -40,8 +41,8 @@ class MinecraftBot {
         this.setupEvents();
         
         return new Promise((resolve, reject) => {
+            // Solo manejar el spawn UNA VEZ aquí
             this.bot.once('spawn', () => {
-                this.onSpawn();
                 resolve(this);
             });
             
@@ -49,6 +50,13 @@ class MinecraftBot {
                 console.error('Bot error:', err);
                 reject(err);
             });
+
+            // Timeout de conexión
+            setTimeout(() => {
+                if (!this.isReady) {
+                    reject(new Error('Bot connection timeout'));
+                }
+            }, 30000);
         });
     }
 
@@ -58,7 +66,7 @@ class MinecraftBot {
             console.log(`Bot logged in as ${this.bot.username}`);
         });
 
-        // Evento cuando el bot hace spawn
+        // Evento cuando el bot hace spawn - REMOVER EL DUPLICATE
         this.bot.once('spawn', () => {
             this.onSpawn();
         });
@@ -67,6 +75,7 @@ class MinecraftBot {
         this.bot.on('end', () => {
             console.log('Bot disconnected from server');
             this.isReady = false;
+            this.viewerStarted = false;
         });
 
         // Evento cuando el bot recibe un mensaje de chat
@@ -86,31 +95,39 @@ class MinecraftBot {
     }
 
     onSpawn() {
+        // Evitar ejecución múltiple
+        if (this.isReady) {
+            console.log('onSpawn called but bot is already ready, skipping...');
+            return;
+        }
+
         console.log('Bot spawned successfully!');
         
-        // Configurar movimiento
+        // 1. Configurar movimiento PRIMERO
         this.setupMovement();
         
-        // Inicializar sistemas
-        this.actions = new BotActions(this.bot);
-        this.behaviors = new BotBehaviors(this.bot, this.actions);
+        // 2. Configurar viewer INMEDIATAMENTE después (solo si no está iniciado)
+        if (!this.viewerStarted) {
+            this.setupViewer();
+        }
         
-        // Configurar comportamientos defensivos
-        this.behaviors.setupDefensiveBehavior();
-        
-        // Configurar viewer
-        this.setupViewer();
-        
-        // Teleportarse al spawn point
+        // 3. Teleportarse al spawn point
         const spawnPos = this.bot.spawnPoint;
         this.bot.chat(`/tp @s ${spawnPos.x} ${spawnPos.y} ${spawnPos.z}`);
         
-        // Anunciar que está listo
+        // 4. Inicializar sistemas DESPUÉS del viewer
+        this.actions = new BotActions(this.bot);
+        this.behaviors = new BotBehaviors(this.bot, this.actions);
+        
+        // 5. Configurar comportamientos defensivos
+        this.behaviors.setupDefensiveBehavior();
+        
+        // 6. Anunciar que está listo
         this.bot.chat("JSBot is ready! Type 'help' for commands.");
         
         this.isReady = true;
         
-        // Iniciar comportamiento por defecto (movimiento en línea recta)
+        // 7. Iniciar comportamiento por defecto CON DELAY
         this.startDefaultBehavior();
     }
 
@@ -133,17 +150,26 @@ class MinecraftBot {
     }
 
     setupViewer() {
+        // Evitar múltiples intentos de crear el viewer
+        if (this.viewerStarted) {
+            console.log('Viewer already started, skipping...');
+            return;
+        }
+
         try {
+            console.log('Starting 3D viewer...');
             mineflayerViewer(this.bot, VIEWER_CONFIG);
             console.log(`3D Viewer started at http://localhost:${VIEWER_CONFIG.port}`);
+            this.viewerStarted = true;
         } catch (error) {
-            console.warn('Failed to start viewer:', error.message);
+            console.error('Failed to start viewer:', error);
+            console.error('Stack trace:', error.stack);
         }
     }
 
     async startDefaultBehavior() {
-        // Esperar un poco antes de empezar a moverse
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Esperar un poco antes de empezar comportamientos complejos
+        await new Promise(resolve => setTimeout(resolve, 3000));
         
         console.log('Starting default behavior: moving straight north');
         
