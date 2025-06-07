@@ -149,33 +149,59 @@ class NavigationStateMachine {
             // Si solo los pies están bloqueados, intentar saltar
             console.log('Only feet blocked - attempting to jump');
             this.currentState = NavigationStateMachine.STATES.JUMPING;
-        } else if (this.consecutiveFailures >= 2) {
-            // Si no hay obstáculos obvios pero llevamos varios fallos, cambiar dirección
-            console.log('No obvious obstacles but multiple failures - changing direction');
-            this.currentState = NavigationStateMachine.STATES.CHANGING_DIRECTION;
-        } else {
-            // Si no hay obstáculos obvios, volver a intentar moverse
-            console.log('Path appears clear - resuming movement');
-            this.currentState = NavigationStateMachine.STATES.MOVING;
+        } else if (!feetBlocked && !headBlocked) {
+            // Verificar si hay terreno más bajo hacia donde moverse
+            let foundSolidGround = false;
+            for (let i = 1; i <= 5; i++) {
+                const lowerBlock = this.actions.block_at(
+                    currentPos.x + direction.x,
+                    currentPos.y - i,
+                    currentPos.z + direction.z
+                );
+                
+                if (this.isBlockSolid(lowerBlock)) {
+                    foundSolidGround = true;
+                    break;
+                }
+            }
+            
+            if (foundSolidGround) {
+                console.log('Lower terrain detected - resuming movement');
+                this.currentState = NavigationStateMachine.STATES.MOVING;
+            } else if (this.consecutiveFailures >= 2) {
+                console.log('No solid ground found and multiple failures - changing direction');
+                this.currentState = NavigationStateMachine.STATES.CHANGING_DIRECTION;
+            } else {
+                console.log('Path appears clear - resuming movement');
+                this.currentState = NavigationStateMachine.STATES.MOVING;
+            }
+        } else if (!feetBlocked && !headBlocked) {
+            // Verificar si hay terreno más bajo hacia donde moverse
+            let foundSolidGround = false;
+            for (let i = 1; i <= 5; i++) {
+                const lowerBlock = this.actions.block_at(
+                    currentPos.x + direction.x,
+                    currentPos.y - i,
+                    currentPos.z + direction.z
+                );
+                
+                if (this.isBlockSolid(lowerBlock)) {
+                    foundSolidGround = true;
+                    break;
+                }
+            }
+            
+            if (foundSolidGround) {
+                console.log('Lower terrain detected - resuming movement');
+                this.currentState = NavigationStateMachine.STATES.MOVING;
+            } else if (this.consecutiveFailures >= 2) {
+                console.log('No solid ground found and multiple failures - changing direction');
+                this.currentState = NavigationStateMachine.STATES.CHANGING_DIRECTION;
+            } else {
+                console.log('Path appears clear - resuming movement');
+                this.currentState = NavigationStateMachine.STATES.MOVING;
+            }
         }
-    }
-
-    // Verificar si un bloque es sólido
-    isBlockSolid(block) {
-        if (!block) return false;
-        
-        // Bloques que no son sólidos para el movimiento
-        const nonSolidBlocks = [
-            'air', 'water', 'lava', 'tall_grass', 'grass', 'fern', 'dead_bush',
-            'dandelion', 'poppy', 'blue_orchid', 'allium', 'azure_bluet',
-            'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip',
-            'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose',
-            'sunflower', 'lilac', 'rose_bush', 'peony', 'wheat', 'carrots',
-            'potatoes', 'beetroots', 'sugar_cane', 'kelp', 'seagrass',
-            'cave_air', 'void_air'
-        ];
-        
-        return !nonSolidBlocks.includes(block.name);
     }
 
     // Manejar estado JUMPING
