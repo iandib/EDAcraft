@@ -57,6 +57,7 @@ class AutonomousBot
         this.feetBlocked = false;
         this.headBlocked = false;
         this.aboveBlocked = false;
+        this.overheadBlocked = false;
         
         // Start autonomous behavior immediately
         this.start();
@@ -111,10 +112,11 @@ class AutonomousBot
         this.feetBlocked = false;
         this.headBlocked = false;
         this.aboveBlocked = false;
+        this.overheadBlocked = false;
     }
 
     /**
-     * @brief Scans three blocks in front of bot (feet, head, above)
+     * @brief Scans blocks: front (feet/head/above) and directly overhead of bot
      */
     scanEnvironment()
     {
@@ -140,11 +142,19 @@ class AutonomousBot
             solidBlocks++;
         }
 
-        // Check above head level (Y + 2)
+        // Check above head level in front (Y + 2)
         const aboveBlock = this.actions.block_at(frontPos.x, pos.y + 2, frontPos.z);
         if (aboveBlock && aboveBlock.name !== 'air')
         {
             this.aboveBlocked = true;
+            solidBlocks++;
+        }
+
+        // Check directly overhead of bot (Y + 2, same X/Z)
+        const overheadBlock = this.actions.block_at(pos.x, pos.y + 2, pos.z);
+        if (overheadBlock && overheadBlock.name !== 'air')
+        {
+            this.overheadBlocked = true;
             solidBlocks++;
         }
 
@@ -162,9 +172,9 @@ class AutonomousBot
         switch (this.currentState)
         {
             case 'MOVING':
-                if (this.headBlocked)
+                // Change direction if: head blocked OR (feet blocked AND (overhead OR above))
+                if (this.headBlocked || (this.feetBlocked && (this.overheadBlocked || this.aboveBlocked)))
                 {
-                    // Change direction if head is blocked
                     await this.changeDirection();
                 }
                 else if (this.feetBlocked && !this.headBlocked && !this.aboveBlocked)
