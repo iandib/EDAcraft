@@ -6,7 +6,7 @@
     * @author      Ian A. Dib
     * @author      Luciano S. Cordero
     * @date        2025-06-07
-    * @version     1.0
+    * @version     1.1 - Cleaned logging
 
     ************************************************************************************* */
 
@@ -54,7 +54,9 @@ class BotActions
      * @param {Object} bot - Mineflayer bot instance
      */
     constructor(bot)
-    {this.bot = bot;}
+    {
+        this.bot = bot;
+    }
 
     //* MOVEMENT AND NAVIGATION
 
@@ -67,14 +69,13 @@ class BotActions
     async step(direction)
     {
         if (!DIRECTION_MAPPINGS[direction])
-            {throw new Error(`Invalid direction: ${direction}`);}
+        {
+            throw new Error(`Invalid direction: ${direction}`);
+        }
 
         const offset = DIRECTION_MAPPINGS[direction];
         const currentPos = this.bot.entity.position.floored();
         const targetPos = currentPos.offset(offset.x, 0, offset.z);
-
-        console.log(`Attempting to move from (${currentPos.x}, ${currentPos.y}, 
-                   ${currentPos.z}) to (${targetPos.x}, ${targetPos.y}, ${targetPos.z})`);
 
         try
         {
@@ -84,15 +85,13 @@ class BotActions
             const finalPos = this.bot.entity.position.floored();
             const moved = !(currentPos.x === finalPos.x && currentPos.y === finalPos.y && currentPos.z === finalPos.z);
             
-            if (moved)
-                {console.log(`Bot successfully stepped ${direction} to position: ${finalPos.x}, ${finalPos.y}, ${finalPos.z}`);}
-            
-            else
-                {console.log(`Bot failed to move ${direction}, still at: ${finalPos.x}, ${finalPos.y}, ${finalPos.z}`);}
+            if (!moved)
+            {
+                console.log(`Movement failed: blocked moving ${direction}`);
+            }
             
             return moved;
         }
-        
         catch (error)
         {
             console.log(`Movement failed: ${error.message}`);
@@ -107,8 +106,10 @@ class BotActions
     jump()
     {
         this.bot.setControlState('jump', true);
-        setTimeout(() => {this.bot.setControlState('jump', false);}, JUMP_DURATION);
-        console.log('Bot jumped');
+        setTimeout(() => 
+        {
+            this.bot.setControlState('jump', false);
+        }, JUMP_DURATION);
         return true;
     }
 
@@ -123,7 +124,6 @@ class BotActions
     async look(yaw, pitch = 0)
     {
         await this.bot.look(yaw, pitch, true);
-        console.log(`Bot looked to yaw: ${yaw}, pitch: ${pitch}`);
         return true;
     }
 
@@ -133,7 +133,8 @@ class BotActions
      * @brief Retrieves bot's current floored position coordinates
      * @returns {Object} Position object with x, y, z integer coordinates
      */
-    position() {
+    position()
+    {
         const pos = this.bot.entity.position;
         return {
             x: Math.floor(pos.x),
