@@ -126,7 +126,7 @@ class AutonomousBot
         
         let solidBlocks = 0;
 
-        // Check feet level (same Y as bot)
+        // Check feet level (same Y as bot) in front
         const feetBlock = this.actions.block_at(frontPos.x, pos.y, frontPos.z);
         if (feetBlock && feetBlock.name !== 'air')
         {
@@ -134,7 +134,7 @@ class AutonomousBot
             solidBlocks++;
         }
 
-        // Check head level (Y + 1)
+        // Check head level (Y + 1) in front
         const headBlock = this.actions.block_at(frontPos.x, pos.y + 1, frontPos.z);
         if (headBlock && headBlock.name !== 'air')
         {
@@ -142,7 +142,7 @@ class AutonomousBot
             solidBlocks++;
         }
 
-        // Check above head level in front (Y + 2)
+        // Check above head level (Y + 2) in front
         const aboveBlock = this.actions.block_at(frontPos.x, pos.y + 2, frontPos.z);
         if (aboveBlock && aboveBlock.name !== 'air')
         {
