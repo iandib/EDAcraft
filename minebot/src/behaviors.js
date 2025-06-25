@@ -19,7 +19,7 @@
 const MOVEMENT_INTERVAL = 200;
 
 // Bot's movement direction
-const MOVEMENT_DIRECTION = 'west';
+const MOVEMENT_DIRECTION = 'east';
 
 
 /* **************************************************************************************

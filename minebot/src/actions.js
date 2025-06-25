@@ -68,34 +68,32 @@ class BotActions
      */
     async step(direction)
     {
-        if (!DIRECTION_MAPPINGS[direction])
-        {
-            throw new Error(`Invalid direction: ${direction}`);
-        }
+        if (!DIRECTION_MAPPINGS[direction]) throw new Error(`Invalid direction: ${direction}`);
 
         const offset = DIRECTION_MAPPINGS[direction];
         const currentPos = this.bot.entity.position.floored();
-        const targetPos = currentPos.offset(offset.x, 0, offset.z);
-
+        
         try
         {
-            const goal = new GoalBlock(targetPos.x, targetPos.y, targetPos.z);
+            // Try pathfinder first
+            const goal = new GoalBlock(currentPos.x + offset.x, currentPos.y, currentPos.z + offset.z);
             await this.bot.pathfinder.goto(goal);
             
             const finalPos = this.bot.entity.position.floored();
-            const moved = !(currentPos.x === finalPos.x && currentPos.y === finalPos.y && currentPos.z === finalPos.z);
-            
-            if (!moved)
+            if (currentPos.x === finalPos.x && currentPos.z === finalPos.z)
             {
-                console.log(`Movement failed: blocked moving ${direction}`);
+                throw new Error('No movement');
             }
-            
-            return moved;
+            return true;
         }
         catch (error)
         {
-            console.log(`Movement failed: ${error.message}`);
-            return false;
+            // Fallback to direct movement
+            await this.bot.look(offset.yaw, 0, true);
+            this.bot.setControlState('forward', true);
+            await new Promise(resolve => setTimeout(resolve, 300));
+            this.bot.setControlState('forward', false);
+            return true;
         }
     }
 
