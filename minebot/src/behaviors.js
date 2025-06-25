@@ -18,8 +18,16 @@
 // Movement execution interval in milliseconds
 const MOVEMENT_INTERVAL = 200;
 
-// Bot's movement direction
-const MOVEMENT_DIRECTION = 'east';
+// Available movement directions
+const DIRECTIONS = ['north', 'south', 'east', 'west'];
+
+// Direction mappings for front position calculation
+const DIRECTION_OFFSETS = {
+    north: { x: 0, z: -1 },
+    south: { x: 0, z: 1 },
+    west: { x: -1, z: 0 },
+    east: { x: 1, z: 0 }
+};
 
 
 /* **************************************************************************************
@@ -28,7 +36,7 @@ const MOVEMENT_DIRECTION = 'east';
 
 /**
  * @class AutonomousBot
- * @brief Single-state machine for continuous autonomous movement
+ * @brief State machine for autonomous movement with obstacle detection
  */
 class AutonomousBot
 {
@@ -42,7 +50,13 @@ class AutonomousBot
         this.bot = bot;
         this.actions = actions;
         this.currentState = 'MOVING';
+        this.currentDirection = 'west';
         this.isRunning = false;
+        
+        // Obstacle detection flags
+        this.feetBlocked = false;
+        this.headBlocked = false;
+        this.aboveBlocked = false;
         
         // Start autonomous behavior immediately
         this.start();
@@ -71,11 +85,12 @@ class AutonomousBot
         {
             try
             {
-                // A. Scan environment
+                // Reset flags and scan environment
+                this.resetFlags();
                 this.scanEnvironment();
                 
-                // B. Move regardless of obstacles
-                await this.executeMovement();
+                // Execute state machine
+                await this.executeStateMachine();
                 
                 // Wait before next cycle
                 await this.sleep(MOVEMENT_INTERVAL);
@@ -89,36 +104,49 @@ class AutonomousBot
     }
 
     /**
-     * @brief Scans blocks in front, left, and right of bot at feet and head level
+     * @brief Resets all obstacle detection flags
+     */
+    resetFlags()
+    {
+        this.feetBlocked = false;
+        this.headBlocked = false;
+        this.aboveBlocked = false;
+    }
+
+    /**
+     * @brief Scans three blocks in front of bot (feet, head, above)
      */
     scanEnvironment()
     {
         const pos = this.actions.position();
+        const offset = DIRECTION_OFFSETS[this.currentDirection];
+        const frontPos = { x: pos.x + offset.x, z: pos.z + offset.z };
+        
         let solidBlocks = 0;
 
-        // Check front, left, right positions
-        const positions = [
-            { x: pos.x, z: pos.z - 1 },    // front (north)
-            { x: pos.x - 1, z: pos.z },   // left (west)
-            { x: pos.x + 1, z: pos.z }    // right (east)
-        ];
-
-        positions.forEach(scanPos =>
+        // Check feet level (same Y as bot)
+        const feetBlock = this.actions.block_at(frontPos.x, pos.y, frontPos.z);
+        if (feetBlock && feetBlock.name !== 'air')
         {
-            // Check feet level
-            const feetBlock = this.actions.block_at(scanPos.x, pos.y, scanPos.z);
-            if (feetBlock && feetBlock.name !== 'air')
-            {
-                solidBlocks++;
-            }
+            this.feetBlocked = true;
+            solidBlocks++;
+        }
 
-            // Check head level
-            const headBlock = this.actions.block_at(scanPos.x, pos.y + 1, scanPos.z);
-            if (headBlock && headBlock.name !== 'air')
-            {
-                solidBlocks++;
-            }
-        });
+        // Check head level (Y + 1)
+        const headBlock = this.actions.block_at(frontPos.x, pos.y + 1, frontPos.z);
+        if (headBlock && headBlock.name !== 'air')
+        {
+            this.headBlocked = true;
+            solidBlocks++;
+        }
+
+        // Check above head level (Y + 2)
+        const aboveBlock = this.actions.block_at(frontPos.x, pos.y + 2, frontPos.z);
+        if (aboveBlock && aboveBlock.name !== 'air')
+        {
+            this.aboveBlocked = true;
+            solidBlocks++;
+        }
 
         if (solidBlocks > 0)
         {
@@ -127,19 +155,55 @@ class AutonomousBot
     }
 
     /**
-     * @brief Executes movement step, never stops trying
+     * @brief Executes state machine logic based on obstacle flags
      */
-    async executeMovement()
+    async executeStateMachine()
     {
-        try
+        switch (this.currentState)
         {
-            await this.actions.step(MOVEMENT_DIRECTION);
+            case 'MOVING':
+                if (this.headBlocked)
+                {
+                    // Change direction if head is blocked
+                    await this.changeDirection();
+                }
+                else if (this.feetBlocked && !this.headBlocked && !this.aboveBlocked)
+                {
+                    // Jump if only feet blocked
+                    this.actions.jump();
+                    await this.actions.step(this.currentDirection);
+                }
+                else
+                {
+                    // Normal movement
+                    await this.actions.step(this.currentDirection);
+                }
+                break;
         }
-        catch (error)
-        {
-            // Continue trying regardless of failures
-            console.log(`Step failed, continuing: ${error.message}`);
-        }
+    }
+
+    /**
+     * @brief Changes bot direction to next available direction
+     */
+    async changeDirection()
+    {
+        const currentIndex = DIRECTIONS.indexOf(this.currentDirection);
+        const nextIndex = (currentIndex + 1) % DIRECTIONS.length;
+        const newDirection = DIRECTIONS[nextIndex];
+        
+        console.log(`Changing direction from ${this.currentDirection} to ${newDirection}`);
+        
+        this.currentDirection = newDirection;
+        
+        // Update bot's look direction
+        const directionMappings = {
+            north: Math.PI,
+            south: 0,
+            west: Math.PI / 2,
+            east: -Math.PI / 2
+        };
+        
+        await this.actions.look(directionMappings[newDirection]);
     }
 
     /**
