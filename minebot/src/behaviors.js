@@ -1,25 +1,32 @@
 /** *************************************************************************************
    
     * @file        behaviors.js
-    * @brief       Autonomous movement state machine for continuous bot navigation
+    * @brief       Autonomous movement state machine using pathfinder for navigation
     * @author      Agustín I. Galdeman
     * @author      Ian A. Dib
     * @author      Luciano S. Cordero
-    * @date        2025-06-07
-    * @version     2.0 - Simplified autonomous state machine
+    * @date        2025-06-25
+    * @version     3.0 - Refactored to use pathfinder module
 
     ************************************************************************************* */
+
+
+/* **************************************************************************************
+    * INCLUDES AND DEPENDENCIES *
+   ************************************************************************************** */
+
+const SimplePathfinder = require('./pathfinder');
 
 
 /* **************************************************************************************
     * CONSTANTS AND STATIC DATA *
    ************************************************************************************** */
 
+// Initial wait before starting autonomous behavior
+const INITIAL_WAIT = 3000;
+
 // Movement execution interval in milliseconds
 const MOVEMENT_INTERVAL = 200;
-
-// Bot's movement direction
-const MOVEMENT_DIRECTION = 'east';
 
 
 /* **************************************************************************************
@@ -28,7 +35,7 @@ const MOVEMENT_DIRECTION = 'east';
 
 /**
  * @class AutonomousBot
- * @brief Single-state machine for continuous autonomous movement
+ * @brief State machine for autonomous movement using pathfinder for navigation
  */
 class AutonomousBot
 {
@@ -41,11 +48,12 @@ class AutonomousBot
     {
         this.bot = bot;
         this.actions = actions;
+        this.pathfinder = new SimplePathfinder(actions);
         this.currentState = 'MOVING';
         this.isRunning = false;
         
-        // Start autonomous behavior immediately
-        this.start();
+        // Start autonomous behavior after initial wait
+        setTimeout(() => this.start(), INITIAL_WAIT);
     }
 
     /**
@@ -56,7 +64,6 @@ class AutonomousBot
         if (this.isRunning) return;
         
         this.isRunning = true;
-        console.log('Starting autonomous movement');
         
         // Begin continuous movement loop
         this.movementLoop();
@@ -71,11 +78,8 @@ class AutonomousBot
         {
             try
             {
-                // A. Scan environment
-                this.scanEnvironment();
-                
-                // B. Move regardless of obstacles
-                await this.executeMovement();
+                // Execute state machine
+                await this.executeStateMachine();
                 
                 // Wait before next cycle
                 await this.sleep(MOVEMENT_INTERVAL);
@@ -89,57 +93,50 @@ class AutonomousBot
     }
 
     /**
-     * @brief Scans blocks in front, left, and right of bot at feet and head level
+     * @brief Executes state machine logic using pathfinder decisions
      */
-    scanEnvironment()
+    async executeStateMachine()
     {
-        const pos = this.actions.position();
-        let solidBlocks = 0;
-
-        // Check front, left, right positions
-        const positions = [
-            { x: pos.x, z: pos.z - 1 },    // front (north)
-            { x: pos.x - 1, z: pos.z },   // left (west)
-            { x: pos.x + 1, z: pos.z }    // right (east)
-        ];
-
-        positions.forEach(scanPos =>
+        switch (this.currentState)
         {
-            // Check feet level
-            const feetBlock = this.actions.block_at(scanPos.x, pos.y, scanPos.z);
-            if (feetBlock && feetBlock.name !== 'air')
-            {
-                solidBlocks++;
-            }
-
-            // Check head level
-            const headBlock = this.actions.block_at(scanPos.x, pos.y + 1, scanPos.z);
-            if (headBlock && headBlock.name !== 'air')
-            {
-                solidBlocks++;
-            }
-        });
-
-        if (solidBlocks > 0)
-        {
-            console.log(`Environment scan: ${solidBlocks} solid blocks detected`);
+            case 'MOVING':
+                // Get movement decision from pathfinder
+                const movement = this.pathfinder.getNextMovement();
+                
+                switch (movement.action)
+                {
+                    case 'change_direction':
+                        await this.changeDirection(movement.newDirection);
+                        break;
+                        
+                    case 'jump_and_move':
+                        this.actions.jump();
+                        await this.actions.step(movement.direction);
+                        break;
+                        
+                    case 'move':
+                        await this.actions.step(movement.direction);
+                        break;
+                }
+                break;
         }
     }
 
     /**
-     * @brief Executes movement step, never stops trying
+     * @brief Changes bot direction to specified new direction
+     * @param {string} newDirection - Direction to change to
      */
-    async executeMovement()
+    async changeDirection(newDirection)
     {
-        try
-        {
-            await this.actions.step(MOVEMENT_DIRECTION);
-        }
-        catch (error)
-        {
-            // Continue trying regardless of failures
-            console.log(`Step failed, continuing: ${error.message}`);
-        }
+        const currentDirection = this.pathfinder.getDirection();
+        
+        console.log(`Changing direction from ${currentDirection} to ${newDirection}`);
+        
+        // Update pathfinder direction
+        this.pathfinder.setDirection(newDirection);
+        
+        // Update bot's look direction
+        await this.actions.lookAt(newDirection);
     }
 
     /**

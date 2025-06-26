@@ -122,12 +122,6 @@ class MinecraftBot
             this.isReady = false;
             this.viewerStarted = false;
         });
-
-        this.bot.on('health', () =>
-        {
-            if (this.bot.health < 20)
-            {console.log(`Health: ${this.bot.health}/20, Food: ${this.bot.food}/20`);}
-        });
     }
 
     /**
@@ -140,7 +134,7 @@ class MinecraftBot
             return;
         }
 
-        console.log('Bot spawned successfully!');
+        console.log('Bot spawned successfully');
         
         this.setupMovement();
         
@@ -151,8 +145,6 @@ class MinecraftBot
         this.stateMachine = new NavigationStateMachine(this.bot, this.actions);
         
         this.isReady = true;
-        
-        console.log('Bot initialization complete. Starting autonomous navigation...');
         
         setTimeout(() =>
         {this.startAutonomousMode();}, INITIALIZATION_DELAY);
@@ -192,7 +184,6 @@ class MinecraftBot
 
         try
         {
-            console.log('Starting 3D viewer...');
             mineflayerViewer(this.bot, VIEWER_CONFIG);
             console.log(`3D Viewer started at http://localhost:${VIEWER_CONFIG.port}`);
             this.viewerStarted = true;
@@ -200,17 +191,6 @@ class MinecraftBot
         
         catch (error)
         {console.error('Failed to start viewer:', error);}
-    }
-
-    //* AUTONOMOUS OPERATION
-
-    /**
-     * @brief Initiates autonomous navigation mode with default northward direction
-     */
-    startAutonomousMode()
-    {
-        console.log('Starting autonomous navigation mode...');
-        this.stateMachine.start('north');
     }
 }
 
@@ -228,9 +208,6 @@ async function main()
     {
         const minecraftBot = new MinecraftBot();
         await minecraftBot.start();
-        
-        console.log('Bot is running autonomously! Press Ctrl+C to stop.');
-        console.log(`3D Viewer available at http://localhost:${VIEWER_CONFIG.port}`);
         
         process.on('SIGINT', () =>
         {

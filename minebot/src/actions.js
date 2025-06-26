@@ -6,7 +6,7 @@
     * @author      Ian A. Dib
     * @author      Luciano S. Cordero
     * @date        2025-06-07
-    * @version     1.1 - Cleaned logging
+    * @version     1.2 - Fixed lookAt command
 
     ************************************************************************************* */
 
@@ -71,29 +71,36 @@ class BotActions
         if (!DIRECTION_MAPPINGS[direction]) throw new Error(`Invalid direction: ${direction}`);
 
         const offset = DIRECTION_MAPPINGS[direction];
-        const currentPos = this.bot.entity.position.floored();
         
         try
         {
-            // Try pathfinder first
-            const goal = new GoalBlock(currentPos.x + offset.x, currentPos.y, currentPos.z + offset.z);
-            await this.bot.pathfinder.goto(goal);
+            // Set bot orientation using lookAt with a target point
+            const currentPos = this.bot.entity.position;
+            const targetPoint = new Vec3(
+                currentPos.x + offset.x,
+                currentPos.y,
+                currentPos.z + offset.z
+            );
             
-            const finalPos = this.bot.entity.position.floored();
-            if (currentPos.x === finalPos.x && currentPos.z === finalPos.z)
-            {
-                throw new Error('No movement');
-            }
+            await this.bot.lookAt(targetPoint, true);
+            
+            // Move forward with direct control, as pathfinder.goto() caused errors
+            this.bot.setControlState('forward', true);
+            
+            // Movement duration - adjust as needed
+            await new Promise(resolve => setTimeout(resolve, 300));
+            
+            // Stop movement
+            this.bot.setControlState('forward', false);
+            
             return true;
         }
         catch (error)
         {
-            // Fallback to direct movement
-            await this.bot.look(offset.yaw, 0, true);
-            this.bot.setControlState('forward', true);
-            await new Promise(resolve => setTimeout(resolve, 300));
+            // Ensure movement is stopped even on error
+            console.log('step error')
             this.bot.setControlState('forward', false);
-            return true;
+            throw error;
         }
     }
 
@@ -114,14 +121,26 @@ class BotActions
     //* VIEW AND ORIENTATION CONTROL
 
     /**
-     * @brief Adjusts bot's viewing direction to specified yaw and pitch
-     * @param {number} yaw - Horizontal rotation angle in radians
-     * @param {number} pitch - Vertical rotation angle in radians (default: 0)
+     * @brief Adjusts bot's viewing direction to look at a specific cardinal direction
+     * @param {string} direction - Cardinal direction (north, south, east, west)
+     * @param {boolean} force - Force immediate look without smooth transition
      * @returns {boolean} Always returns true after look completion
      */
-    async look(yaw, pitch = 0)
+    async lookAt(direction, force = true)
     {
-        await this.bot.look(yaw, pitch, true);
+        if (!DIRECTION_MAPPINGS[direction]) throw new Error(`Invalid direction: ${direction}`);
+        
+        const offset = DIRECTION_MAPPINGS[direction];
+        const currentPos = this.bot.entity.position;
+
+        // Convert direction to Vec3
+        const targetPoint = new Vec3(
+            currentPos.x + offset.x,
+            currentPos.y,
+            currentPos.z + offset.z
+        );
+        
+        await this.bot.lookAt(targetPoint, force);
         return true;
     }
 
