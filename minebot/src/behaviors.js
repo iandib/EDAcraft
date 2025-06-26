@@ -1,14 +1,21 @@
 /** *************************************************************************************
    
     * @file        behaviors.js
-    * @brief       Autonomous movement state machine for continuous bot navigation
+    * @brief       Autonomous movement state machine using pathfinder for navigation
     * @author      Agustín I. Galdeman
     * @author      Ian A. Dib
     * @author      Luciano S. Cordero
-    * @date        2025-06-07
-    * @version     2.0 - Simplified autonomous state machine
+    * @date        2025-06-25
+    * @version     3.0 - Refactored to use pathfinder module
 
     ************************************************************************************* */
+
+
+/* **************************************************************************************
+    * INCLUDES AND DEPENDENCIES *
+   ************************************************************************************** */
+
+const SimplePathfinder = require('./pathfinder');
 
 
 /* **************************************************************************************
@@ -18,17 +25,6 @@
 // Movement execution interval in milliseconds
 const MOVEMENT_INTERVAL = 200;
 
-// Available movement directions
-const DIRECTIONS = ['north', 'south', 'east', 'west'];
-
-// Direction mappings for front position calculation
-const DIRECTION_OFFSETS = {
-    north: { x: 0, z: -1 },
-    south: { x: 0, z: 1 },
-    west: { x: -1, z: 0 },
-    east: { x: 1, z: 0 }
-};
-
 
 /* **************************************************************************************
     * CLASS IMPLEMENTATIONS *
@@ -36,7 +32,7 @@ const DIRECTION_OFFSETS = {
 
 /**
  * @class AutonomousBot
- * @brief State machine for autonomous movement with obstacle detection
+ * @brief State machine for autonomous movement using pathfinder for navigation
  */
 class AutonomousBot
 {
@@ -49,15 +45,9 @@ class AutonomousBot
     {
         this.bot = bot;
         this.actions = actions;
+        this.pathfinder = new SimplePathfinder(actions);
         this.currentState = 'MOVING';
-        this.currentDirection = 'west';
         this.isRunning = false;
-        
-        // Obstacle detection flags
-        this.feetBlocked = false;
-        this.headBlocked = false;
-        this.aboveBlocked = false;
-        this.overheadBlocked = false;
         
         // Start autonomous behavior immediately
         this.start();
@@ -86,10 +76,6 @@ class AutonomousBot
         {
             try
             {
-                // Reset flags and scan environment
-                this.resetFlags();
-                this.scanEnvironment();
-                
                 // Execute state machine
                 await this.executeStateMachine();
                 
@@ -105,115 +91,51 @@ class AutonomousBot
     }
 
     /**
-     * @brief Resets all obstacle detection flags
-     */
-    resetFlags()
-    {
-        this.feetBlocked = false;
-        this.headBlocked = false;
-        this.aboveBlocked = false;
-        this.overheadBlocked = false;
-    }
-
-    /**
-     * @brief Scans blocks: front (feet/head/above) and directly overhead of bot
-     */
-    scanEnvironment()
-    {
-        const pos = this.actions.position();
-        const offset = DIRECTION_OFFSETS[this.currentDirection];
-        const frontPos = { x: pos.x + offset.x, z: pos.z + offset.z };
-        
-        let solidBlocks = 0;
-
-        // Check feet level (same Y as bot) in front
-        const feetBlock = this.actions.block_at(frontPos.x, pos.y, frontPos.z);
-        if (feetBlock && feetBlock.name !== 'air')
-        {
-            this.feetBlocked = true;
-            solidBlocks++;
-        }
-
-        // Check head level (Y + 1) in front
-        const headBlock = this.actions.block_at(frontPos.x, pos.y + 1, frontPos.z);
-        if (headBlock && headBlock.name !== 'air')
-        {
-            this.headBlocked = true;
-            solidBlocks++;
-        }
-
-        // Check above head level (Y + 2) in front
-        const aboveBlock = this.actions.block_at(frontPos.x, pos.y + 2, frontPos.z);
-        if (aboveBlock && aboveBlock.name !== 'air')
-        {
-            this.aboveBlocked = true;
-            solidBlocks++;
-        }
-
-        // Check directly overhead of bot (Y + 2, same X/Z)
-        const overheadBlock = this.actions.block_at(pos.x, pos.y + 2, pos.z);
-        if (overheadBlock && overheadBlock.name !== 'air')
-        {
-            this.overheadBlocked = true;
-            solidBlocks++;
-        }
-
-        if (solidBlocks > 0)
-        {
-            console.log(`Environment scan: ${solidBlocks} solid blocks detected`);
-        }
-    }
-
-    /**
-     * @brief Executes state machine logic based on obstacle flags
+     * @brief Executes state machine logic using pathfinder decisions
      */
     async executeStateMachine()
     {
         switch (this.currentState)
         {
             case 'MOVING':
-                // Change direction if: head blocked OR (feet blocked AND (overhead OR above))
-                if (this.headBlocked || (this.feetBlocked && (this.overheadBlocked || this.aboveBlocked)))
+                // Get movement decision from pathfinder
+                const movement = this.pathfinder.getNextMovement();
+                
+                switch (movement.action)
                 {
-                    await this.changeDirection();
-                }
-                else if (this.feetBlocked && !this.headBlocked && !this.aboveBlocked)
-                {
-                    // Jump if only feet blocked
-                    this.actions.jump();
-                    await this.actions.step(this.currentDirection);
-                }
-                else
-                {
-                    // Normal movement
-                    await this.actions.step(this.currentDirection);
+                    case 'change_direction':
+                        await this.changeDirection(movement.newDirection);
+                        break;
+                        
+                    case 'jump_and_move':
+                        this.actions.jump();
+                        await this.actions.step(movement.direction);
+                        break;
+                        
+                    case 'move':
+                        await this.actions.step(movement.direction);
+                        break;
                 }
                 break;
         }
     }
 
     /**
-     * @brief Changes bot direction to next available direction
+     * @brief Changes bot direction to specified new direction
+     * @param {string} newDirection - Direction to change to
      */
-    async changeDirection()
+    async changeDirection(newDirection)
     {
-        const currentIndex = DIRECTIONS.indexOf(this.currentDirection);
-        const nextIndex = (currentIndex + 1) % DIRECTIONS.length;
-        const newDirection = DIRECTIONS[nextIndex];
+        const currentDirection = this.pathfinder.getDirection();
         
-        console.log(`Changing direction from ${this.currentDirection} to ${newDirection}`);
+        console.log(`Changing direction from ${currentDirection} to ${newDirection}`);
         
-        this.currentDirection = newDirection;
+        // Update pathfinder direction
+        this.pathfinder.setDirection(newDirection);
         
         // Update bot's look direction
-        const directionMappings = {
-            north: Math.PI,
-            south: 0,
-            west: Math.PI / 2,
-            east: -Math.PI / 2
-        };
-        
-        await this.actions.look(directionMappings[newDirection]);
+        const yaw = this.pathfinder.getDirectionYaw(newDirection);
+        await this.actions.look(yaw);
     }
 
     /**
