@@ -1,21 +1,14 @@
 /** *************************************************************************************
    
     * @file        behaviors.js
-    * @brief       Autonomous movement state machine using pathfinder for navigation
+    * @brief       Autonomous movement state machine for continuous bot navigation
     * @author      Agustín I. Galdeman
     * @author      Ian A. Dib
     * @author      Luciano S. Cordero
-    * @date        2025-06-25
-    * @version     3.1 - Added goal-based pathfinding support
+    * @date        2025-06-07
+    * @version     2.0 - Simplified autonomous state machine
 
     ************************************************************************************* */
-
-
-/* **************************************************************************************
-    * INCLUDES AND DEPENDENCIES *
-   ************************************************************************************** */
-
-const SimplePathfinder = require('./pathfinder');
 
 
 /* **************************************************************************************
@@ -25,6 +18,9 @@ const SimplePathfinder = require('./pathfinder');
 // Movement execution interval in milliseconds
 const MOVEMENT_INTERVAL = 200;
 
+// Bot's movement direction
+const MOVEMENT_DIRECTION = 'east';
+
 
 /* **************************************************************************************
     * CLASS IMPLEMENTATIONS *
@@ -32,7 +28,7 @@ const MOVEMENT_INTERVAL = 200;
 
 /**
  * @class AutonomousBot
- * @brief State machine for autonomous movement using pathfinder for navigation
+ * @brief Single-state machine for continuous autonomous movement
  */
 class AutonomousBot
 {
@@ -45,25 +41,11 @@ class AutonomousBot
     {
         this.bot = bot;
         this.actions = actions;
-        this.pathfinder = new SimplePathfinder(actions);
         this.currentState = 'MOVING';
         this.isRunning = false;
         
         // Start autonomous behavior immediately
         this.start();
-    }
-
-    /**
-     * @brief Sets a goal position for the bot to navigate to
-     * @param {number} x - Target X coordinate
-     * @param {number} y - Target Y coordinate
-     * @param {number} z - Target Z coordinate
-     */
-    setGoal(x, y, z)
-    {
-        this.pathfinder.setGoal(x, y, z);
-        this.pathfinder.clearIdle(); // Clear idle state when new goal is set
-        console.log(`New goal set: x:${x}, y:${y}, z:${z}`);
     }
 
     /**
@@ -89,8 +71,11 @@ class AutonomousBot
         {
             try
             {
-                // Execute state machine
-                await this.executeStateMachine();
+                // A. Scan environment
+                this.scanEnvironment();
+                
+                // B. Move regardless of obstacles
+                await this.executeMovement();
                 
                 // Wait before next cycle
                 await this.sleep(MOVEMENT_INTERVAL);
@@ -104,65 +89,57 @@ class AutonomousBot
     }
 
     /**
-     * @brief Executes state machine logic using pathfinder decisions
+     * @brief Scans blocks in front, left, and right of bot at feet and head level
      */
-    async executeStateMachine()
+    scanEnvironment()
     {
-        switch (this.currentState)
+        const pos = this.actions.position();
+        let solidBlocks = 0;
+
+        // Check front, left, right positions
+        const positions = [
+            { x: pos.x, z: pos.z - 1 },    // front (north)
+            { x: pos.x - 1, z: pos.z },   // left (west)
+            { x: pos.x + 1, z: pos.z }    // right (east)
+        ];
+
+        positions.forEach(scanPos =>
         {
-            case 'MOVING':
-                // Get movement decision from pathfinder
-                const movement = this.pathfinder.getNextMovement();
-                
-                switch (movement.action)
-                {
-                    case 'change_direction':
-                        await this.changeDirection(movement.newDirection);
-                        break;
-                        
-                    case 'jump_and_move':
-                        this.actions.jump();
-                        await this.actions.step(movement.direction);
-                        // Mark step as completed for goal-based movement
-                        if (this.pathfinder.isGoalMode)
-                        {
-                            this.pathfinder.completeStep(movement.direction);
-                        }
-                        break;
-                        
-                    case 'move':
-                        await this.actions.step(movement.direction);
-                        // Mark step as completed for goal-based movement
-                        if (this.pathfinder.isGoalMode)
-                        {
-                            this.pathfinder.completeStep(movement.direction);
-                        }
-                        break;
-                        
-                    case 'idle':
-                        // Bot is idle - either goal reached or impassable obstacle
-                        break;
-                }
-                break;
+            // Check feet level
+            const feetBlock = this.actions.block_at(scanPos.x, pos.y, scanPos.z);
+            if (feetBlock && feetBlock.name !== 'air')
+            {
+                solidBlocks++;
+            }
+
+            // Check head level
+            const headBlock = this.actions.block_at(scanPos.x, pos.y + 1, scanPos.z);
+            if (headBlock && headBlock.name !== 'air')
+            {
+                solidBlocks++;
+            }
+        });
+
+        if (solidBlocks > 0)
+        {
+            console.log(`Environment scan: ${solidBlocks} solid blocks detected`);
         }
     }
 
     /**
-     * @brief Changes bot direction to specified new direction
-     * @param {string} newDirection - Direction to change to
+     * @brief Executes movement step, never stops trying
      */
-    async changeDirection(newDirection)
+    async executeMovement()
     {
-        const currentDirection = this.pathfinder.getDirection();
-        
-        console.log(`Changing direction from ${currentDirection} to ${newDirection}`);
-        
-        // Update pathfinder direction
-        this.pathfinder.setDirection(newDirection);
-        
-        // Update bot's look direction
-        const yaw = this.pathfinder.getDirectionYaw(newDirection);
-        await this.actions.look(yaw);
+        try
+        {
+            await this.actions.step(MOVEMENT_DIRECTION);
+        }
+        catch (error)
+        {
+            // Continue trying regardless of failures
+            console.log(`Step failed, continuing: ${error.message}`);
+        }
     }
 
     /**
