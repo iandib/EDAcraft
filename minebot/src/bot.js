@@ -6,7 +6,7 @@
     * @author      Ian A. Dib
     * @author      Luciano S. Cordero
     * @date        2025-06-07
-    * @version     1.0
+    * @version     2.0 - Fixed duplicated bot start
 
     ************************************************************************************* */
 
@@ -42,9 +42,6 @@ const VIEWER_CONFIG =
     port: 3007,
     firstPerson: false
 };
-
-// Bot initialization delay in milliseconds
-const INITIALIZATION_DELAY = 2000;
 
 // Connection timeout duration in milliseconds
 const CONNECTION_TIMEOUT = 30000;
@@ -136,8 +133,6 @@ class MinecraftBot
 
         console.log('Bot spawned successfully');
         
-        this.setupMovement();
-        
         if (!this.viewerStarted)
             {this.setupViewer();}
         
@@ -145,30 +140,6 @@ class MinecraftBot
         this.stateMachine = new NavigationStateMachine(this.bot, this.actions);
         
         this.isReady = true;
-        
-        setTimeout(() =>
-        {this.startAutonomousMode();}, INITIALIZATION_DELAY);
-    }
-
-    //* SYSTEM CONFIGURATION
-
-    /**
-     * @brief Configures pathfinding movement system with safety constraints
-     */
-    setupMovement()
-    {
-        const movements = new Movements(this.bot);
-        
-        movements.scafoldingBlocks = [];
-        movements.allow1by1towers = false;
-        movements.canDig = false;
-        movements.allowWalkOnWater = false;
-        movements.allowSwimming = false;
-        movements.allowParkour = false;
-        movements.allowSprinting = false;
-        
-        this.bot.pathfinder.setMovements(movements);
-        console.log('Movement system configured');
     }
 
     /**

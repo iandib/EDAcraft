@@ -6,7 +6,7 @@
     * @author      Ian A. Dib
     * @author      Luciano S. Cordero
     * @date        2025-06-07
-    * @version     1.2 - Fixed lookAt command
+    * @version     2.0 - Fixed lookAt command
 
     ************************************************************************************* */
 

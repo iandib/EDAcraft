@@ -6,7 +6,7 @@
     * @author      Ian A. Dib
     * @author      Luciano S. Cordero
     * @date        2025-06-25
-    * @version     1.0 - Initial pathfinding module
+    * @version     2.0 - Added goal-based pathfinding
 
     ************************************************************************************* */
 
@@ -19,7 +19,8 @@
 const DIRECTIONS = ['north', 'south', 'east', 'west'];
 
 // Direction mappings for front position calculation
-const DIRECTION_OFFSETS = {
+const DIRECTION_OFFSETS = 
+{
     north: { x: 0, z: -1 },
     south: { x: 0, z: 1 },
     west: { x: -1, z: 0 },
@@ -51,6 +52,133 @@ class SimplePathfinder
         this.headBlocked = false;
         this.aboveBlocked = false;
         this.overheadBlocked = false;
+                
+        // Goal-based navigation
+        this.goalPosition = null;
+        this.movementPlan = null;
+        this.isGoalMode = false;
+        this.isIdle = false;
+    }
+
+    /**
+     * @brief Sets goal coordinates and calculates movement plan
+     * @param {number} x - Target X coordinate
+     * @param {number} y - Target Y coordinate (ignored for horizontal movement)
+     * @param {number} z - Target Z coordinate
+     */
+    setGoal(x, y, z)
+    {
+        this.goalPosition = { x, y, z };
+        this.calculateMovementPlan();
+        this.isGoalMode = true;
+        this.isIdle = false;
+        console.log(`Goal set to: x:${x}, y:${y}, z:${z}`);
+    }
+
+    /**
+     * @brief Calculates movement plan to reach goal position
+     */
+    calculateMovementPlan()
+    {
+        if (!this.goalPosition) return;
+        
+        const currentPos = this.actions.position();
+        const deltaX = this.goalPosition.x - currentPos.x;
+        const deltaZ = this.goalPosition.z - currentPos.z;
+        
+        this.movementPlan = {
+            north: deltaZ < 0 ? Math.abs(deltaZ) : 0,
+            south: deltaZ > 0 ? deltaZ : 0,
+            west: deltaX < 0 ? Math.abs(deltaX) : 0,
+            east: deltaX > 0 ? deltaX : 0,
+            completed: {
+                north: 0,
+                south: 0,
+                west: 0,
+                east: 0
+            }
+        };
+        
+        console.log(`Movement plan calculated:`);
+        console.log(`  North: ${this.movementPlan.north} steps`);
+        console.log(`  South: ${this.movementPlan.south} steps`);
+        console.log(`  West: ${this.movementPlan.west} steps`);
+        console.log(`  East: ${this.movementPlan.east} steps`);
+    }
+
+    /**
+     * @brief Gets the next direction needed to reach the goal
+     * @returns {string|null} Next direction to move, or null if goal reached
+     */
+    getNextGoalDirection()
+    {
+        if (!this.movementPlan) return null;
+        
+        for (const direction of DIRECTIONS)
+        {
+            const needed = this.movementPlan[direction];
+            const completed = this.movementPlan.completed[direction];
+            
+            if (completed < needed)
+            {
+                return direction;
+            }
+        }
+        
+        return null; // Goal reached
+    }
+
+    /**
+     * @brief Marks a step as completed in the movement plan
+     * @param {string} direction - Direction that was completed
+     */
+    completeStep(direction)
+    {
+        if (this.movementPlan && this.movementPlan.completed[direction] < this.movementPlan[direction])
+        {
+            this.movementPlan.completed[direction]++;
+            console.log(`Completed step ${direction}: ${this.movementPlan.completed[direction]}/${this.movementPlan[direction]}`);
+        }
+    }
+
+    /**
+     * @brief Checks if goal has been reached
+     * @returns {boolean} True if goal reached, false otherwise
+     */
+    isGoalReached()
+    {
+        if (!this.movementPlan) return false;
+        
+        for (const direction of DIRECTIONS)
+        {
+            if (this.movementPlan.completed[direction] < this.movementPlan[direction])
+            {
+                return false;
+            }
+        }
+        
+        console.log('Goal reached!');
+        this.isGoalMode = false;
+        this.goalPosition = null;
+        this.movementPlan = null;
+        return true;
+    }
+
+    /**
+     * @brief Sets bot to idle state
+     */
+    setIdle()
+    {
+        this.isIdle = true;
+        console.log('Bot set to idle due to impassable obstacle');
+    }
+
+    /**
+     * @brief Clears idle state
+     */
+    clearIdle()
+    {
+        this.isIdle = false;
     }
 
     /**
@@ -107,24 +235,45 @@ class SimplePathfinder
      */
     getNextMovement()
     {
+        // If idle, don't move
+        if (this.isIdle)
+        {
+            return { action: 'idle' };
+        }
+
+        // Goal-based movement
+        if (this.isGoalMode)
+        {
+            if (this.isGoalReached())
+            {
+                return { action: 'idle' };
+            }
+
+            const nextDirection = this.getNextGoalDirection();
+            if (!nextDirection)
+            {
+                return { action: 'idle' };
+            }
+
+            this.currentDirection = nextDirection;
+        }
+
         this.scanEnvironment();
 
-        // Change direction if: head blocked OR (feet blocked AND (overhead OR above))
-        if (this.headBlocked || (this.feetBlocked && (this.overheadBlocked || this.aboveBlocked)))
+        // Obstacle type A: Only feet blocked (can jump)
+        if (this.feetBlocked && !this.headBlocked && !this.aboveBlocked && !this.overheadBlocked)
         {
-            console.log('changing direction');
-            return {
-                action: 'change_direction',
-                newDirection: this.getNextDirection()
-            };
-        }
-        else if (this.feetBlocked && !this.headBlocked && !this.aboveBlocked)
-        {
-            // Jump if only feet blocked
             return {
                 action: 'jump_and_move',
                 direction: this.currentDirection
             };
+        }
+        // Obstacle type B: Head blocked OR (feet blocked AND (overhead OR above)) - impassable
+        else if (this.headBlocked || (this.feetBlocked && (this.overheadBlocked || this.aboveBlocked)))
+        {
+            console.error(`Impassable obstacle detected at direction ${this.currentDirection}`);
+            this.setIdle();
+            return { action: 'idle' };
         }
         else
         {
@@ -137,7 +286,7 @@ class SimplePathfinder
     }
 
     /**
-     * @brief Calculates next direction in sequence
+     * @brief Calculates next direction in sequence (for non-goal movement)
      * @returns {string} Next direction to try
      */
     getNextDirection()

@@ -6,7 +6,7 @@
     * @author      Ian A. Dib
     * @author      Luciano S. Cordero
     * @date        2025-06-25
-    * @version     3.0 - Refactored to use pathfinder module
+    * @version     3.0 - Added goal-based pathfinding support
 
     ************************************************************************************* */
 
@@ -54,6 +54,20 @@ class AutonomousBot
         
         // Start autonomous behavior after initial wait
         setTimeout(() => this.start(), INITIAL_WAIT);
+    }
+
+    /**
+     * @brief Sets a goal position for the bot to navigate to
+     * @param {number} x - Target X coordinate
+     * @param {number} y - Target Y coordinate
+     * @param {number} z - Target Z coordinate
+     */
+    setGoal(x, y, z)
+    {
+        //! magic number
+        this.pathfinder.setGoal(-791, 103, 152);
+        this.pathfinder.clearIdle(); // Clear idle state when new goal is set
+        console.log(`New goal set: x:${x}, y:${y}, z:${z}`);
     }
 
     /**
@@ -112,10 +126,24 @@ class AutonomousBot
                     case 'jump_and_move':
                         this.actions.jump();
                         await this.actions.step(movement.direction);
+                        // Mark step as completed for goal-based movement
+                        if (this.pathfinder.isGoalMode)
+                        {
+                            this.pathfinder.completeStep(movement.direction);
+                        }
                         break;
                         
                     case 'move':
                         await this.actions.step(movement.direction);
+                        // Mark step as completed for goal-based movement
+                        if (this.pathfinder.isGoalMode)
+                        {
+                            this.pathfinder.completeStep(movement.direction);
+                        }
+                        break;
+                        
+                    case 'idle':
+                        // Bot is idle - either goal reached or impassable obstacle
                         break;
                 }
                 break;
