@@ -188,6 +188,7 @@ class SimplePathfinder
         console.log(`[PF] Scanned ${blockCount} blocks in environment`);
     }
 
+    //! Al igual que se guardan las impassableCoords, guardar jumpCoords
     /**
      * @brief Analyzes scanned environment and updates impassable coordinates
      */
@@ -237,6 +238,7 @@ class SimplePathfinder
         }
     }
 
+    //! Unir los dos métodos de EnvironmentScan, agregar una flag para verificar si debe hacer un clear al inicio o no
     /**
      * @brief Performs initial full environment scan and builds grid
      */
@@ -319,6 +321,7 @@ class SimplePathfinder
         console.log(`[PF] Grid built: ${maxX - minX + 1}x${maxZ - minZ + 1} = ${gridCells} cells`);
     }
 
+    //? Verificar si el escaneo de radio en esto se pisa con el de reactToEnvironment
     /**
      * @brief Updates existing pathfinding grid with new cost information
      */
@@ -421,6 +424,7 @@ class SimplePathfinder
         let iterations = 0;
         while (openSet.length > 0) 
         {
+            //! Quitar iterations, no es necesario
             iterations++;
             // Prevent infinite loops
             if (iterations > 10000) 
@@ -540,6 +544,8 @@ class SimplePathfinder
                currentPos.z === this.goalPosition.z;
     }
 
+    //! Usar el estado idle en lugar del método
+    //! 
     /**
      * @brief Gets next movement action based on A* path and immediate obstacles
      * @returns {Object} Movement decision with action type and parameters
@@ -565,7 +571,8 @@ class SimplePathfinder
                 this.isGoalMode = false;
                 return { action: 'idle' };
             }
-
+            
+            //? Chequear si es necesario la verificación de stepCount > 0 (seteando lastRescanSep a 0 inicial, puede que no sea necesario)
             // Check if we need to perform incremental scan
             if (this.stepCount > 0 && this.stepCount % RESCAN_INTERVAL === 0 && this.lastRescanStep !== this.stepCount) 
             {
@@ -583,6 +590,8 @@ class SimplePathfinder
                 console.log('[PF] Path completed but goal not reached, recalculating...');
                 this.calculateAStarPath();
                 this.currentPathIndex = 0;
+
+                //? Verificar si este if es necesario
                 if (this.currentPath.length === 0) {
                     console.log('[PF] No path found, setting idle');
                     this.setIdle();
@@ -611,7 +620,8 @@ class SimplePathfinder
             }
             
             this.currentDirection = targetDirection;
-            
+            //! En lugar de saltar obstáculos de esta manera, verificar si el bot se encuentra en una coordenada guardada en jumpCoords y ejecutar ese estado
+            //! De lo contrario, ejecuta move o idle cuando corresponda
             // Check immediate obstacles in front of bot
             const frontObstacle = this.checkImmediateObstacle();
             
@@ -643,6 +653,7 @@ class SimplePathfinder
         return { action: 'idle' };
     }
 
+    //! Eliminar este método, la lógica está repetida de reactToEnvironment()
     /**
      * @brief Checks immediate obstacle in front of bot (similar to old scanEnvironment logic)
      * @returns {Object} Obstacle information with canJump and isBlocked flags
@@ -682,6 +693,7 @@ class SimplePathfinder
         return { canJump: false, isBlocked: false };
     }
 
+    //! Arreglar la condición que verifica si se dio un step chequeando coordenadas
     /**
      * @brief Marks a step as completed in the A* path
      * @param {string} direction - Direction that was completed (for compatibility)
@@ -697,6 +709,7 @@ class SimplePathfinder
         }
     }
 
+    //! En lugar de tener métodos idle, directamente pasar al estado idle en la máquina de estados
     /**
      * @brief Sets bot to idle state
      */
