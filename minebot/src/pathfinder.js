@@ -31,7 +31,7 @@ const DIRECTION_OFFSETS =
 const BLOCK_COSTS = 
 {
     air: 1,           // Standard movement cost
-    water: 10,        // High cost for water traversal
+    water: 100,        // High cost for water traversal
     lava: Infinity,   // Impassable - infinite cost
     // All other solid blocks default to 1 unless marked as impassable
 };
@@ -701,11 +701,44 @@ class SimplePathfinder
                 const remaining = this.currentPath.length - this.currentPathIndex;
                 console.log(`[PF] Step ${this.currentPathIndex}/${this.currentPath.length} complete (${remaining} left)`);
             }
+
             else 
             {
                 console.log(`[PF] Step not completed - bot at (${currentPos.x},${currentPos.z}), target (${targetStep.x},${targetStep.z})`);
+                
+                // Check if bot is supposed to jump (obstacle in front but can jump)
+                const obstacle = this.checkImmediateObstacle();
+                
+                if (!obstacle.canJump && !obstacle.isBlocked) 
+                {
+                    // Only force unstuck movement if bot isn't supposed to jump
+                    const unstuckDirection = this.getPerpendicularDirection(this.currentDirection);
+                    console.log(`[PF] Forcing unstuck step: ${unstuckDirection}`);
+                    this.actions.step(unstuckDirection);
+                }
+                else 
+                {
+                    console.log(`[PF] Bot should jump or is blocked, not forcing unstuck movement`);
+                }
             }
         }
+    }
+
+    /**
+     * @brief Gets perpendicular direction for unsticking bot
+     * @param {string} direction - Current direction
+     * @returns {string} Perpendicular direction (90 degrees counterclockwise)
+     */
+    getPerpendicularDirection(direction)
+    {
+        const perpendicularMap = {
+            'north': 'west',
+            'west': 'south', 
+            'south': 'east',
+            'east': 'north'
+        };
+        
+        return perpendicularMap[direction] || 'west';
     }
 
     //! En lugar de tener métodos idle, directamente pasar al estado idle en la máquina de estados

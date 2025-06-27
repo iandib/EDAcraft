@@ -53,8 +53,8 @@ class AutonomousBot
         this.isRunning = false;
         
         // Establecer objetivo inicial
-        //this.setGoal(-791, 103, 152);
-        this.setGoal(-791, 71, 152);
+        this.setGoal(-791, 103, 152);
+        //this.setGoal(-700, 71, 140);
         
         // Start autonomous behavior after initial wait
         setTimeout(() => this.start(), INITIAL_WAIT);
