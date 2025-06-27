@@ -6,7 +6,7 @@
     * @author      Ian A. Dib
     * @author      Luciano S. Cordero
     * @date        2025-06-07
-    * @version     1.2 - Fixed lookAt command
+    * @version     2.0 - Fixed lookAt command
 
     ************************************************************************************* */
 
@@ -26,10 +26,10 @@ const { Vec3 } = require("vec3");
 // Direction mappings with movement offsets and yaw rotations
 const DIRECTION_MAPPINGS =
 {
-    north: { x: 0, z: -1, yaw: Math.PI },
-    south: { x: 0, z: 1, yaw: 0 },
-    west: { x: -1, z: 0, yaw: Math.PI / 2 },
-    east: { x: 1, z: 0, yaw: -Math.PI / 2 }
+    north: {x: 0, z: -1, yaw: Math.PI},
+    south: {x: 0, z: 1, yaw: 0},
+    west: {x: -1, z: 0, yaw: Math.PI/2},
+    east: {x: 1, z: 0, yaw: -Math.PI/2}
 };
 
 // Default maximum distance for block searching operations
@@ -56,6 +56,7 @@ class BotActions
     constructor(bot)
     {
         this.bot = bot;
+        this.chestWindow = null; // Keep reference to open chest
     }
 
     //* MOVEMENT AND NAVIGATION
@@ -161,6 +162,24 @@ class BotActions
     }
 
     /**
+     * @brief Retrieves spawn point coordinates
+     * @returns {Object|null} Spawn point coordinates or null if not available
+     */
+    // Note: this method is unused, but could be useful for debugging
+    spawnPoint()
+    {
+        if (this.bot.spawnPoint)
+        {
+            return {
+                x: this.bot.spawnPoint.x,
+                y: this.bot.spawnPoint.y,
+                z: this.bot.spawnPoint.z
+            };
+        }
+        return null;
+    }
+
+    /**
      * @brief Locates the nearest block of specified type within search radius
      * @param {string} blockType - Name of the block type to search for
      * @param {number} maxDistance - Maximum search distance (default: 16)
@@ -207,6 +226,116 @@ class BotActions
             };
         }
         return null;
+    }
+
+    //* WORLD INTERACTION COMMANDS
+
+    /**
+     * @brief Opens a chest at specified coordinates
+     * @param {number} x - X coordinate of the chest
+     * @param {number} y - Y coordinate of the chest
+     * @param {number} z - Z coordinate of the chest
+     * @returns {boolean} True if chest opened successfully
+     * @throws {Error} If block is not found or cannot be opened as chest
+     */
+    async openChestAt(x, y, z)
+    {
+        const block = this.bot.blockAt(new Vec3(x, y, z));
+        
+        if (!block)
+        {
+            throw new Error("Block not found at specified coordinates");
+        }
+
+        try
+        {
+            this.chestWindow = await this.bot.openChest(block);
+            return true;
+        }
+        catch (error)
+        {
+            throw new Error(`Failed to open chest: ${error.message}`);
+        }
+    }
+
+    /**
+     * @brief Retrieves contents of currently open chest
+     * @returns {Array} Array of items in the chest with slot, name, and count
+     * @throws {Error} If no chest is currently open
+     */
+    getChestContents()
+    {
+        if (!this.chestWindow)
+        {
+            throw new Error("No chest is currently open");
+        }
+
+        return this.chestWindow.containerItems().map(item => ({
+            slot: item.slot,
+            name: item.name,
+            count: item.count
+        }));
+    }
+
+    /**
+     * @brief Closes the currently open chest
+     * @returns {boolean} True if chest was closed successfully
+     * @throws {Error} If no chest is currently open
+     */
+    closeChest()
+    {
+        if (!this.chestWindow)
+        {
+            throw new Error("No chest is currently open");
+        }
+
+        this.chestWindow.close();
+        this.chestWindow = null;
+        return true;
+    }
+
+    /**
+     * @brief Sends a message to the game chat
+     * @param {string} message - Message to send to chat
+     * @returns {boolean} Always returns true after sending message
+     */
+    chat(message)
+    {
+        this.bot.chat(message);
+        return true;
+    }
+
+    /**
+     * @brief Digs/breaks a block at specified coordinates
+     * @param {number} x - X coordinate of the block to dig
+     * @param {number} y - Y coordinate of the block to dig
+     * @param {number} z - Z coordinate of the block to dig
+     * @returns {boolean} True if block was successfully dug
+     * @throws {Error} If block cannot be dug or is not found
+     */
+    async dig_block(x, y, z)
+    {
+        const blockToDig = this.bot.blockAt(new Vec3(x, y, z));
+
+        if (!blockToDig)
+        {
+            throw new Error("Block not found at specified coordinates");
+        }
+
+        if (!this.bot.canDigBlock(blockToDig))
+        {
+            throw new Error("Cannot dig this block (protected or invalid)");
+        }
+
+        try
+        {
+            await this.bot.dig(blockToDig);
+            return true;
+        }
+        catch (error)
+        {
+            throw new Error(`Failed to dig block: ${error.message}`);
+        }
     }
 }
 
