@@ -114,7 +114,7 @@ class SimplePathfinder
         
         // Step counter for periodic rescanning
         this.stepCount = 0;
-        this.lastRescanStep = -1;
+        this.lastRescanStep = 0;
         
         console.log('[PF] Pathfinder initialized');
     }
@@ -421,19 +421,8 @@ class SimplePathfinder
         
         allNodes.set(`${startNode.x},${startNode.z}`, startNode);
         
-        let iterations = 0;
         while (openSet.length > 0) 
-        {
-            //! Quitar iterations, no es necesario
-            iterations++;
-            // Prevent infinite loops
-            if (iterations > 10000) 
-            {
-                console.log('[PF] ERROR: A* exceeded max iterations, aborting');
-                this.setIdle();
-                return [];
-            }
-            
+        {        
             // Find node with lowest fCost
             let currentNode = openSet[0];
             let currentIndex = 0;
@@ -485,7 +474,8 @@ class SimplePathfinder
                     neighborNode = new PathNode(neighborX, neighborZ, tentativeGCost, hCost, currentNode);
                     allNodes.set(neighborKey, neighborNode);
                     openSet.push(neighborNode);
-                } 
+                }
+
                 else if (tentativeGCost < neighborNode.gCost) 
                 {
                     // Better path to this neighbor found
@@ -545,7 +535,6 @@ class SimplePathfinder
     }
 
     //! Usar el estado idle en lugar del método
-    //! 
     /**
      * @brief Gets next movement action based on A* path and immediate obstacles
      * @returns {Object} Movement decision with action type and parameters
@@ -572,9 +561,8 @@ class SimplePathfinder
                 return { action: 'idle' };
             }
             
-            //? Chequear si es necesario la verificación de stepCount > 0 (seteando lastRescanSep a 0 inicial, puede que no sea necesario)
             // Check if we need to perform incremental scan
-            if (this.stepCount > 0 && this.stepCount % RESCAN_INTERVAL === 0 && this.lastRescanStep !== this.stepCount) 
+            if (this.stepCount % RESCAN_INTERVAL === 0 && this.lastRescanStep !== this.stepCount) 
             {
                 console.log('rescan')
                 this.performIncrementalEnvironmentScan();
@@ -693,19 +681,30 @@ class SimplePathfinder
         return { canJump: false, isBlocked: false };
     }
 
-    //! Arreglar la condición que verifica si se dio un step chequeando coordenadas
+    // TODO test
     /**
-     * @brief Marks a step as completed in the A* path
+     * @brief Marks a step as completed only when bot actually moves to new coordinates
      * @param {string} direction - Direction that was completed (for compatibility)
      */
     completeStep(direction)
     {
         if (this.isGoalMode && this.currentPathIndex < this.currentPath.length) 
         {
-            this.currentPathIndex++;
-            this.stepCount++;
-            const remaining = this.currentPath.length - this.currentPathIndex;
-            console.log(`[PF] Step ${this.currentPathIndex}/${this.currentPath.length} complete (${remaining} left)`);
+            const currentPos = this.actions.position();
+            const targetStep = this.currentPath[this.currentPathIndex];
+            
+            // Only increment if bot is actually at the target coordinates
+            if (currentPos.x === targetStep.x && currentPos.z === targetStep.z) 
+            {
+                this.currentPathIndex++;
+                this.stepCount++;
+                const remaining = this.currentPath.length - this.currentPathIndex;
+                console.log(`[PF] Step ${this.currentPathIndex}/${this.currentPath.length} complete (${remaining} left)`);
+            }
+            else 
+            {
+                console.log(`[PF] Step not completed - bot at (${currentPos.x},${currentPos.z}), target (${targetStep.x},${targetStep.z})`);
+            }
         }
     }
 
