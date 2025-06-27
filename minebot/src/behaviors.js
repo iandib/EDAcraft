@@ -54,7 +54,7 @@ class AutonomousBot
         
         // Establecer objetivo inicial
         //this.setGoal(-791, 103, 152);
-        this.setGoal(-620, 71, 150);
+        this.setGoal(-791, 71, 152);
         
         // Start autonomous behavior after initial wait
         setTimeout(() => this.start(), INITIAL_WAIT);
@@ -96,7 +96,7 @@ class AutonomousBot
             {
                 // Execute state machine
                 await this.executeStateMachine();
-                
+            
                 // Wait before next cycle
                 await this.sleep(MOVEMENT_INTERVAL);
             }
@@ -122,10 +122,6 @@ class AutonomousBot
                 
                 switch (movement.action)
                 {
-                    case 'change_direction':
-                        await this.changeDirection(movement.newDirection);
-                        break;
-                        
                     case 'jump_and_move':
                         this.actions.jump();
                         await this.actions.step(movement.direction);

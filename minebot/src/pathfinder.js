@@ -41,7 +41,7 @@ const SCAN_RADIUS = 1;
 const SCAN_HEIGHT = 3;
 
 // Rescan environment every N steps
-const RESCAN_INTERVAL = 3;
+const RESCAN_INTERVAL = 5;
 
 
 /* **************************************************************************************
@@ -114,6 +114,7 @@ class SimplePathfinder
         
         // Step counter for periodic rescanning
         this.stepCount = 0;
+        this.lastRescanStep = -1;
         
         console.log('[PF] Pathfinder initialized');
     }
@@ -396,17 +397,19 @@ class SimplePathfinder
      */
     calculateAStarPath()
     {
-        if (!this.startPosition || !this.goalPosition) 
+        this.currentPosition = this.actions.position()
+
+        if (!this.currentPosition || !this.goalPosition) 
         {
             console.log('[PF] ERROR: Start or goal position not set');
             return [];
         }
         
         const startNode = new PathNode(
-            this.startPosition.x, 
-            this.startPosition.z, 
+            this.currentPosition.x, 
+            this.currentPosition.z, 
             0, 
-            this.manhattanDistance(this.startPosition.x, this.startPosition.z, this.goalPosition.x, this.goalPosition.z)
+            this.manhattanDistance(this.currentPosition.x, this.currentPosition.z, this.goalPosition.x, this.goalPosition.z)
         );
         
         const openSet = [startNode];  // Nodes to be evaluated
@@ -564,13 +567,15 @@ class SimplePathfinder
             }
 
             // Check if we need to perform incremental scan
-            if (this.stepCount > 0 && this.stepCount % RESCAN_INTERVAL === 0) 
+            if (this.stepCount > 0 && this.stepCount % RESCAN_INTERVAL === 0 && this.lastRescanStep !== this.stepCount) 
             {
+                console.log('rescan')
                 this.performIncrementalEnvironmentScan();
                 
                 // Recalculate path with updated environment
-                // this.calculateAStarPath();
-                // this.currentPathIndex = 0;
+                this.calculateAStarPath();
+                this.currentPathIndex = 0;
+                this.lastRescanStep = this.stepCount;
             }
 
             if (this.currentPathIndex >= this.currentPath.length)

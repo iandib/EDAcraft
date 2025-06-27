@@ -118,32 +118,6 @@ class BotActions
         return true;
     }
 
-    //* VIEW AND ORIENTATION CONTROL
-
-    /**
-     * @brief Adjusts bot's viewing direction to look at a specific cardinal direction
-     * @param {string} direction - Cardinal direction (north, south, east, west)
-     * @param {boolean} force - Force immediate look without smooth transition
-     * @returns {boolean} Always returns true after look completion
-     */
-    async lookAt(direction, force = true)
-    {
-        if (!DIRECTION_MAPPINGS[direction]) throw new Error(`Invalid direction: ${direction}`);
-        
-        const offset = DIRECTION_MAPPINGS[direction];
-        const currentPos = this.bot.entity.position;
-
-        // Convert direction to Vec3
-        const targetPoint = new Vec3(
-            currentPos.x + offset.x,
-            currentPos.y,
-            currentPos.z + offset.z
-        );
-        
-        await this.bot.lookAt(targetPoint, force);
-        return true;
-    }
-
     //* POSITION AND WORLD QUERIES
 
     /**
