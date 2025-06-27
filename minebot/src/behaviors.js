@@ -54,7 +54,7 @@ class AutonomousBot
         
         // Establecer objetivo inicial
         //this.setGoal(-791, 103, 152);
-        this.setGoal(-640, 71, 128);
+        this.setGoal(-600, 71, 120);
         
         // Start autonomous behavior after initial wait
         setTimeout(() => this.start(), INITIAL_WAIT);
@@ -139,7 +139,7 @@ class AutonomousBot
                         
                     case 'move':
                         await this.actions.step(movement.direction);
-                        
+
                         // Mark step as completed for goal-based movement
                         if (this.pathfinder.isGoalMode)
                         {

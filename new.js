@@ -6,7 +6,7 @@
     * @author      Ian A. Dib
     * @author      Luciano S. Cordero
     * @date        2025-06-27
-    * @version     3.1 - Fixed infinite loops and added debug logging
+    * @version     3.2 - Refactored and consolidated obstacle detection logic
 
     ************************************************************************************* */
 
@@ -96,9 +96,6 @@ class SimplePathfinder
         // 2D grid for pathfinding (x,z coordinates with traversal costs)
         this.grid = new Map(); // Key: "x,z", Value: cost
         
-        // Set of impassable coordinates from 3D environment scanning
-        this.impassableCoords = new Set(); // Stores "x,z" strings
-        
         // Goal-based navigation with A* path
         this.goalPosition = null;
         this.currentPath = [];        // Array of {x, z} coordinates
@@ -106,8 +103,6 @@ class SimplePathfinder
         this.isGoalMode = false;
         this.isIdle = false;
         
-        // Environment scanning results
-        this.environmentData = new Map(); // Key: "x,y,z", Value: block info
         console.log('[PF] Pathfinder initialized');
     }
 
@@ -130,106 +125,57 @@ class SimplePathfinder
         this.isIdle = false;
         this.currentPathIndex = 0;
         
-        // Perform initial environment scan and build grid
-        this.performFullEnvironmentScan();
-        
-        // Calculate A* path from start to goal
+        // Build pathfinding grid and calculate A* path
+        this.buildPathfindingGrid();
         this.calculateAStarPath();
     }
 
     /**
-     * @brief Performs comprehensive 3x3x3 environment scanning around bot
+     * @brief Unified obstacle detection for a specific coordinate
+     * @param {number} x - X coordinate to check
+     * @param {number} y - Y coordinate (bot's feet level)
+     * @param {number} z - Z coordinate to check
+     * @returns {Object} Obstacle information with traversalCost, canJump, isBlocked flags
      */
-    scanEnvironment()
+    analyzePosition(x, y, z)
     {
-        const botPos = this.actions.position();
-        this.environmentData.clear();
+        // Get block information at different heights
+        const feetBlock = this.actions.block_at(x, y, z);
+        const headBlock = this.actions.block_at(x, y + 1, z);
+        const aboveBlock = this.actions.block_at(x, y + 2, z);
         
-        let blockCount = 0;
-        // Scan 3x3x3 area around bot (from bot's feet level to 2 blocks above)
-        for (let dx = -SCAN_RADIUS; dx <= SCAN_RADIUS; dx++) 
+        const feetBlocked = feetBlock && feetBlock.name !== 'air';
+        const headBlocked = headBlock && headBlock.name !== 'air';
+        const aboveBlocked = aboveBlock && aboveBlock.name !== 'air';
+        
+        // Determine traversal properties
+        let traversalCost = 1;
+        let canJump = false;
+        let isBlocked = false;
+        
+        // Impassable conditions
+        if (headBlocked || (feetBlocked && aboveBlocked)) 
         {
-            for (let dz = -SCAN_RADIUS; dz <= SCAN_RADIUS; dz++) 
-            {
-                for (let dy = 0; dy < SCAN_HEIGHT; dy++) 
-                {
-                    const scanX = botPos.x + dx;
-                    const scanY = botPos.y + dy;
-                    const scanZ = botPos.z + dz;
-                    
-                    const block = this.actions.block_at(scanX, scanY, scanZ);
-                    const key = `${scanX},${scanY},${scanZ}`;
-                    
-                    this.environmentData.set(key, 
-                    {
-                        name: block ? block.name : 'air',
-                        position: {x: scanX, y: scanY, z: scanZ},
-                        isEmpty: !block || block.name === 'air' || block.name === 'grass'
-                    });
-                    
-                    blockCount++;
-                }
-            }
+            traversalCost = Infinity;
+            isBlocked = true;
         }
-        console.log(`[PF] Scanned ${blockCount} blocks in environment`);
-    }
-
-    /**
-     * @brief Analyzes scanned environment and marks impassable coordinates
-     */
-    reactToEnvironment()
-    {
-        const botPos = this.actions.position();
-        let impassableCount = 0;
-        
-        // Check each position in the scanned area
-        for (let dx = -SCAN_RADIUS; dx <= SCAN_RADIUS; dx++) 
+        // Only feet blocked (can jump over)
+        else if (feetBlocked && !headBlocked && !aboveBlocked) 
         {
-            for (let dz = -SCAN_RADIUS; dz <= SCAN_RADIUS; dz++) 
-            {
-                const checkX = botPos.x + dx;
-                const checkZ = botPos.z + dz;
-                const coordKey = `${checkX},${checkZ}`;
-                
-                // Get block information at different heights
-                const feetBlock = this.environmentData.get(`${checkX},${botPos.y},${checkZ}`);
-                const headBlock = this.environmentData.get(`${checkX},${botPos.y + 1},${checkZ}`);
-                const aboveBlock = this.environmentData.get(`${checkX},${botPos.y + 2},${checkZ}`);
-                
-                // Impassable conditions
-                const hasHeadBlock = headBlock && !headBlock.isEmpty;
-                const hasFeetBlock = feetBlock && !feetBlock.isEmpty;
-                const hasAboveBlock = aboveBlock && !aboveBlock.isEmpty;
-                
-                if (hasHeadBlock || (hasFeetBlock && hasAboveBlock)) 
-                {
-                    this.impassableCoords.add(coordKey);
-                    impassableCount++;
-                }
-            }
+            canJump = true;
+            traversalCost = BLOCK_COSTS[feetBlock.name] || 1;
         }
-        console.log(`[PF] Found ${impassableCount} impassable coordinates`);
+        // Clear path - check for special block costs
+        else if (feetBlock) 
+        {
+            traversalCost = BLOCK_COSTS[feetBlock.name] || 1;
+        }
+        
+        return { traversalCost, canJump, isBlocked };
     }
 
     /**
-     * @brief Performs full environment scan and updates grid costs
-     */
-    performFullEnvironmentScan()
-    {
-        //? Clear previous data
-        // this.impassableCoords.clear();
-        // this.grid.clear();
-        
-        // Scan current environment
-        this.scanEnvironment();
-        this.reactToEnvironment();
-        
-        // Build pathfinding grid with costs
-        this.buildPathfindingGrid();
-    }
-
-    /**
-     * @brief Builds 2D pathfinding grid with traversal costs based on environment
+     * @brief Builds 2D pathfinding grid with traversal costs based on environment analysis
      */
     buildPathfindingGrid()
     {
@@ -239,37 +185,23 @@ class SimplePathfinder
             return;
         }
         
-        // Determine grid bounds (from start to goal plus some padding)
+        //? Es correcto limpiar la grid?
+        this.grid.clear();
+        
+        // Determine grid bounds (from start to goal plus padding)
         const minX = Math.min(this.startPosition.x, this.goalPosition.x) - 5;
         const maxX = Math.max(this.startPosition.x, this.goalPosition.x) + 5;
         const minZ = Math.min(this.startPosition.z, this.goalPosition.z) - 5;
         const maxZ = Math.max(this.startPosition.z, this.goalPosition.z) + 5;
         
         let gridCells = 0;
-        // Build grid with costs
+        // Build grid with costs using unified position analysis
         for (let x = minX; x <= maxX; x++) 
         {
             for (let z = minZ; z <= maxZ; z++) 
             {
-                const coordKey = `${x},${z}`;
-                let cost = 1; // Default cost for air/passable blocks
-                
-                // Check if coordinate is marked as impassable
-                if (this.impassableCoords.has(coordKey)) 
-                {
-                    cost = Infinity;
-                } 
-                else 
-                {
-                    // Check block type at feet level for special costs
-                    const block = this.actions.block_at(x, this.startPosition.y, z);
-                    if (block) 
-                    {
-                        cost = BLOCK_COSTS[block.name] || 1;
-                    }
-                }
-                
-                this.grid.set(coordKey, cost);
+                const analysis = this.analyzePosition(x, this.startPosition.y, z);
+                this.grid.set(`${x},${z}`, analysis.traversalCost);
                 gridCells++;
             }
         }
@@ -427,8 +359,8 @@ class SimplePathfinder
      */
     getNextMovement()
     {
-        this.currentPosition = this.actions.position();
-        console.log(`[PF] Bot position: x:${this.currentPosition.x}, y:${this.currentPosition.y}, z:${this.currentPosition.z}`);
+        const currentPos = this.actions.position();
+        console.log(`[PF] Bot position: x:${currentPos.x}, y:${currentPos.y}, z:${currentPos.z}`);
 
         // If idle, don't move
         if (this.isIdle) 
@@ -448,7 +380,6 @@ class SimplePathfinder
             }
 
             const nextStep = this.currentPath[this.currentPathIndex];
-            const currentPos = this.actions.position();
             
             // Determine direction to next step
             const deltaX = nextStep.x - currentPos.x;
@@ -469,21 +400,31 @@ class SimplePathfinder
             
             this.currentDirection = targetDirection;
             
-            // Check immediate obstacles in front of bot
-            const frontObstacle = this.checkImmediateObstacle();
+            // Check immediate obstacles using unified analysis
+            const offset = DIRECTION_OFFSETS[this.currentDirection];
+            const frontPos = { 
+                x: currentPos.x + offset.x, 
+                z: currentPos.z + offset.z 
+            };
             
-            if (frontObstacle.canJump) 
+            // Also check overhead block for jumping
+            const overheadBlock = this.actions.block_at(currentPos.x, currentPos.y + 2, currentPos.z);
+            const overheadBlocked = overheadBlock && overheadBlock.name !== 'air';
+            
+            const frontAnalysis = this.analyzePosition(frontPos.x, currentPos.y, frontPos.z);
+            
+            if (frontAnalysis.canJump && !overheadBlocked) 
             {
                 return {
                     action: 'jump_and_move',
                     direction: this.currentDirection
                 };
             } 
-            else if (frontObstacle.isBlocked) 
+            else if (frontAnalysis.isBlocked) 
             {
-                console.log(`[PF] Path blocked`);
-                // Rescan environment and recalculate path
-                this.performFullEnvironmentScan();
+                console.log('[PF] Path blocked');
+                // Rebuild grid and recalculate path
+                this.buildPathfindingGrid();
                 this.calculateAStarPath();
                 this.currentPathIndex = 0;
                 return { action: 'idle' }; // Wait for next cycle
@@ -498,50 +439,6 @@ class SimplePathfinder
         }
 
         return { action: 'idle' };
-    }
-
-    /**
-     * @brief Checks immediate obstacle in front of bot (similar to old scanEnvironment logic)
-     * @returns {Object} Obstacle information with canJump and isBlocked flags
-     */
-    checkImmediateObstacle()
-    {
-        const pos = this.actions.position();
-        const offset = DIRECTION_OFFSETS[this.currentDirection];
-        const frontPos = 
-        { 
-            x: pos.x + offset.x, 
-            z: pos.z + offset.z 
-        };
-        
-        // Check blocks at different heights in front
-        const feetBlock = this.actions.block_at(frontPos.x, pos.y, frontPos.z);
-        const headBlock = this.actions.block_at(frontPos.x, pos.y + 1, frontPos.z);
-        const aboveBlock = this.actions.block_at(frontPos.x, pos.y + 2, frontPos.z);
-        const overheadBlock = this.actions.block_at(pos.x, pos.y + 2, pos.z);
-        
-        const feetBlocked = feetBlock && feetBlock.name !== 'air';
-        const headBlocked = headBlock && headBlock.name !== 'air';
-        const aboveBlocked = aboveBlock && aboveBlock.name !== 'air';
-        const overheadBlocked = overheadBlock && overheadBlock.name !== 'air';
-        
-        //! Nunca debería chocar con un obstáculo de tipo B, con el react() se pone ese nodo con peso infinito
-        //? Se puede hacer el chequeo de jump en otro lado? O mejor, cómo reescribo checkImmediate() para que use react()?
-
-        // Obstacle type A: Only feet blocked (can jump)
-        if (feetBlocked && !headBlocked && !aboveBlocked && !overheadBlocked) 
-        {
-            console.log(`jump in check`);
-            return { canJump: true, isBlocked: false };
-        }
-        // Obstacle type B: Head blocked OR (feet blocked AND (overhead OR above)) - impassable
-        else if (headBlocked || (feetBlocked && (overheadBlocked || aboveBlocked))) 
-        {
-            console.log(`blocked in check`);
-            return { canJump: false, isBlocked: true };
-        }
-        
-        return { canJump: false, isBlocked: false };
     }
 
     /**
