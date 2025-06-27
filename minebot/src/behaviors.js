@@ -52,6 +52,9 @@ class AutonomousBot
         this.currentState = 'MOVING';
         this.isRunning = false;
         
+        // Establecer objetivo inicial
+        this.setGoal(-791, 103, 152);
+        
         // Start autonomous behavior after initial wait
         setTimeout(() => this.start(), INITIAL_WAIT);
     }
@@ -64,10 +67,8 @@ class AutonomousBot
      */
     setGoal(x, y, z)
     {
-        //! magic number
-        this.pathfinder.setGoal(-791, 103, 152);
-        this.pathfinder.clearIdle(); // Clear idle state when new goal is set
-        console.log(`New goal set: x:${x}, y:${y}, z:${z}`);
+        this.pathfinder.setGoal(x, y, z);
+        this.pathfinder.clearIdle();
     }
 
     /**

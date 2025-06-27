@@ -6,7 +6,7 @@
     * @author      Ian A. Dib
     * @author      Luciano S. Cordero
     * @date        2025-06-27
-    * @version     3.1 - Fixed infinite loops and added debug logging
+    * @version     3.2 - Added persistent grid and stuck detection
 
     ************************************************************************************* */
 
@@ -39,6 +39,10 @@ const BLOCK_COSTS =
 // Grid scanning dimensions (3x3x3 around bot)
 const SCAN_RADIUS = 1;
 const SCAN_HEIGHT = 3;
+
+// Stuck detection constants
+const STUCK_THRESHOLD = 5;  // Number of cycles before considering bot stuck
+const STUCK_DISTANCE = 0.5; // Maximum distance bot can move before resetting stuck counter
 
 
 /* **************************************************************************************
@@ -94,7 +98,7 @@ class SimplePathfinder
         // Bot starting position - initialized when goal is set
         this.startPosition = null;
         
-        // 2D grid for pathfinding (x,z coordinates with traversal costs)
+        // PERSISTENT 2D grid for pathfinding (x,z coordinates with traversal costs)
         this.grid = new Map(); // Key: "x,z", Value: cost
         
         // Set of impassable coordinates from 3D environment scanning
@@ -109,6 +113,12 @@ class SimplePathfinder
         
         // Environment scanning results
         this.environmentData = new Map(); // Key: "x,y,z", Value: block info
+        
+        // Stuck detection
+        this.lastPosition = null;
+        this.stuckCounter = 0;
+        this.lastMovementTime = Date.now();
+        
         console.log('[PF] Pathfinder initialized');
     }
 
@@ -131,15 +141,18 @@ class SimplePathfinder
         this.isIdle = false;
         this.currentPathIndex = 0;
         
-        // Perform initial environment scan and build grid
-        //* console.log('[PF] Starting environment scan...');
-        this.performFullEnvironmentScan();
+        // Reset stuck detection
+        this.resetStuckDetection();
+        
+        // Perform initial environment scan and build/update grid
+        console.log('[PF] Starting environment scan...');
+        this.performIncrementalEnvironmentScan();
         
         // Calculate A* path from start to goal
         //* console.log('[PF] Calculating A* path...');
         this.calculateAStarPath();
         
-        //* console.log(`[PF] Goal set complete. Path has ${this.currentPath.length} steps`);
+        console.log(`[PF] Goal set complete. Path has ${this.currentPath.length} steps`);
     }
 
     /**
@@ -147,9 +160,7 @@ class SimplePathfinder
      */
     scanEnvironment()
     {
-        //* console.log('[PF] Scanning 3x3x3 environment...');
         const botPos = this.actions.position();
-        this.environmentData.clear();
         
         let blockCount = 0;
         // Scan 3x3x3 area around bot (from bot's feet level to 2 blocks above)
@@ -185,11 +196,10 @@ class SimplePathfinder
      */
     reactToEnvironment()
     {
-        //* console.log('[PF] Analyzing environment for obstacles...');
         const botPos = this.actions.position();
         let impassableCount = 0;
         
-        // Check each position in the scanned area
+        // Clear only the impassable coords in the current scan area
         for (let dx = -SCAN_RADIUS; dx <= SCAN_RADIUS; dx++) 
         {
             for (let dz = -SCAN_RADIUS; dz <= SCAN_RADIUS; dz++) 
@@ -198,6 +208,9 @@ class SimplePathfinder
                 const checkZ = botPos.z + dz;
                 const coordKey = `${checkX},${checkZ}`;
                 
+                // Remove from impassable set first (will re-add if still impassable)
+                this.impassableCoords.delete(coordKey);
+                
                 // Get block information at different heights
                 const feetBlock = this.environmentData.get(`${checkX},${botPos.y},${checkZ}`);
                 const headBlock = this.environmentData.get(`${checkX},${botPos.y + 1},${checkZ}`);
@@ -205,7 +218,7 @@ class SimplePathfinder
                 
                 // Check for impassable conditions:
                 // 1. Block at head level (bot can't walk through)
-                // 2. Block at feet + (block above head OR block at same position above head)
+                // 2. Block at feet + block above head
                 const hasHeadBlock = headBlock && !headBlock.isEmpty;
                 const hasFeetBlock = feetBlock && !feetBlock.isEmpty;
                 const hasAboveBlock = aboveBlock && !aboveBlock.isEmpty;
@@ -217,53 +230,50 @@ class SimplePathfinder
                 }
             }
         }
-        console.log(`[PF] Found ${impassableCount} impassable coordinates`);
+        console.log(`[PF] Found ${impassableCount} impassable coordinates in scan area`);
     }
 
     /**
-     * @brief Performs full environment scan and updates grid costs
+     * @brief Performs incremental environment scan and updates grid costs (DOES NOT CLEAR EXISTING GRID)
      */
-    performFullEnvironmentScan()
+    performIncrementalEnvironmentScan()
     {
-        //* console.log('[PF] Starting full environment scan...');
-        // Clear previous data
-        this.impassableCoords.clear();
-        this.grid.clear();
+        console.log('[PF] Starting incremental environment scan...');
         
-        // Scan current environment - ONLY CALLED ONCE HERE
+        // Scan current environment
         this.scanEnvironment();
         this.reactToEnvironment();
         
-        // Build pathfinding grid with costs
-        this.buildPathfindingGrid();
-        console.log('[PF] Full environment scan complete');
+        // Update pathfinding grid with new information (keeps existing data)
+        this.updatePathfindingGrid();
+        console.log('[PF] Incremental environment scan complete');
     }
 
     /**
-     * @brief Builds 2D pathfinding grid with traversal costs based on environment
+     * @brief Updates 2D pathfinding grid with traversal costs based on current environment scan
+     * PRESERVES existing grid data outside scan area
      */
-    buildPathfindingGrid()
+    updatePathfindingGrid()
     {
-        //* console.log('[PF] Building pathfinding grid...');
+        console.log('[PF] Updating pathfinding grid...');
         if (!this.startPosition || !this.goalPosition) 
         {
             console.log('[PF] ERROR: Start or goal position missing');
             return;
         }
         
-        // Determine grid bounds (from start to goal plus some padding)
-        const minX = Math.min(this.startPosition.x, this.goalPosition.x) - 5;
-        const maxX = Math.max(this.startPosition.x, this.goalPosition.x) + 5;
-        const minZ = Math.min(this.startPosition.z, this.goalPosition.z) - 5;
-        const maxZ = Math.max(this.startPosition.z, this.goalPosition.z) + 5;
+        const botPos = this.actions.position();
+        let updatedCells = 0;
         
-        let gridCells = 0;
-        // Build grid with costs
-        for (let x = minX; x <= maxX; x++) 
+        // Update only the scanned area around the bot
+        for (let dx = -SCAN_RADIUS; dx <= SCAN_RADIUS; dx++) 
         {
-            for (let z = minZ; z <= maxZ; z++) 
+            for (let dz = -SCAN_RADIUS; dz <= SCAN_RADIUS; dz++) 
             {
+                const x = botPos.x + dx;
+                const z = botPos.z + dz;
                 const coordKey = `${x},${z}`;
+                
                 let cost = 1; // Default cost for air/passable blocks
                 
                 // Check if coordinate is marked as impassable
@@ -274,7 +284,7 @@ class SimplePathfinder
                 else 
                 {
                     // Check block type at feet level for special costs
-                    const block = this.actions.block_at(x, this.startPosition.y, z);
+                    const block = this.actions.block_at(x, botPos.y, z);
                     if (block) 
                     {
                         cost = BLOCK_COSTS[block.name] || 1;
@@ -282,11 +292,120 @@ class SimplePathfinder
                 }
                 
                 this.grid.set(coordKey, cost);
-                gridCells++;
+                updatedCells++;
             }
         }
         
-        console.log(`[PF] Grid built: ${maxX - minX + 1}x${maxZ - minZ + 1} = ${gridCells} cells`);
+        // Also ensure grid extends to cover start and goal if not already covered
+        this.ensureGridCoverage();
+        
+        console.log(`[PF] Grid updated: ${updatedCells} cells updated, ${this.grid.size} total cells`);
+    }
+
+    /**
+     * @brief Ensures grid has coverage from start to goal with default costs
+     */
+    ensureGridCoverage()
+    {
+        // Determine grid bounds (from start to goal plus some padding)
+        const minX = Math.min(this.startPosition.x, this.goalPosition.x) - 5;
+        const maxX = Math.max(this.startPosition.x, this.goalPosition.x) + 5;
+        const minZ = Math.min(this.startPosition.z, this.goalPosition.z) - 5;
+        const maxZ = Math.max(this.startPosition.z, this.goalPosition.z) + 5;
+        
+        let newCells = 0;
+        // Add missing cells with default costs
+        for (let x = minX; x <= maxX; x++) 
+        {
+            for (let z = minZ; z <= maxZ; z++) 
+            {
+                const coordKey = `${x},${z}`;
+                if (!this.grid.has(coordKey)) 
+                {
+                    this.grid.set(coordKey, 1); // Default cost
+                    newCells++;
+                }
+            }
+        }
+        
+        if (newCells > 0) 
+        {
+            console.log(`[PF] Added ${newCells} new cells to ensure grid coverage`);
+        }
+    }
+
+    /**
+     * @brief Checks if bot is stuck and needs path recalculation
+     * @returns {boolean} True if bot is considered stuck
+     */
+    checkIfStuck()
+    {
+        const currentPos = this.actions.position();
+        
+        if (!this.lastPosition) 
+        {
+            this.lastPosition = currentPos;
+            return false;
+        }
+        
+        // Calculate distance moved since last check
+        const distance = Math.sqrt(
+            Math.pow(currentPos.x - this.lastPosition.x, 2) + 
+            Math.pow(currentPos.z - this.lastPosition.z, 2)
+        );
+        
+        if (distance > STUCK_DISTANCE) 
+        {
+            // Bot moved significantly, reset stuck counter
+            this.resetStuckDetection();
+            this.lastPosition = currentPos;
+            return false;
+        } 
+        else 
+        {
+            // Bot hasn't moved much
+            this.stuckCounter++;
+            console.log(`[PF] Stuck detection: ${this.stuckCounter}/${STUCK_THRESHOLD}`);
+            
+            if (this.stuckCounter >= STUCK_THRESHOLD) 
+            {
+                console.log('[PF] Bot detected as STUCK - forcing rescan and recalculation');
+                this.resetStuckDetection();
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
+    /**
+     * @brief Resets stuck detection counters
+     */
+    resetStuckDetection()
+    {
+        this.lastPosition = this.actions.position();
+        this.stuckCounter = 0;
+        this.lastMovementTime = Date.now();
+    }
+
+    /**
+     * @brief Forces complete environment rescan and path recalculation
+     */
+    forcePathRecalculation()
+    {
+        console.log('[PF] Forcing complete path recalculation...');
+        
+        // Clear impassable coords (will be rebuilt)
+        this.impassableCoords.clear();
+        
+        // Perform full scan and update
+        this.performIncrementalEnvironmentScan();
+        
+        // Recalculate path from current position
+        this.currentPathIndex = 0;
+        this.calculateAStarPath();
+        
+        console.log('[PF] Forced recalculation complete');
     }
 
     /**
@@ -308,18 +427,20 @@ class SimplePathfinder
      */
     calculateAStarPath()
     {
-        //* console.log('[PF] Starting A* calculation...');
+        console.log('[PF] Starting A* calculation...');
         if (!this.startPosition || !this.goalPosition) 
         {
             console.log('[PF] ERROR: Start or goal position not set');
             return [];
         }
         
+        // Use current position as start if we're already moving
+        const currentPos = this.actions.position();
         const startNode = new PathNode(
-            this.startPosition.x, 
-            this.startPosition.z, 
+            currentPos.x, 
+            currentPos.z, 
             0, 
-            this.manhattanDistance(this.startPosition.x, this.startPosition.z, this.goalPosition.x, this.goalPosition.z)
+            this.manhattanDistance(currentPos.x, currentPos.z, this.goalPosition.x, this.goalPosition.z)
         );
         
         const openSet = [startNode];  // Nodes to be evaluated
@@ -421,7 +542,7 @@ class SimplePathfinder
      */
     reconstructPath(goalNode)
     {
-        //* console.log('[PF] Reconstructing path...');
+        console.log('[PF] Reconstructing path...');
         const path = [];
         let currentNode = goalNode;
         
@@ -447,6 +568,13 @@ class SimplePathfinder
     {
         this.currentPosition = this.actions.position();
         console.log(`[PF] Bot position: x:${this.currentPosition.x}, y:${this.currentPosition.y}, z:${this.currentPosition.z}`);
+
+        // Check if bot is stuck
+        if (this.isGoalMode && this.checkIfStuck()) 
+        {
+            this.forcePathRecalculation();
+            return { action: 'idle' }; // Wait for next cycle after recalculation
+        }
 
         // If idle, don't move
         if (this.isIdle) 
@@ -498,9 +626,9 @@ class SimplePathfinder
             } 
             else if (frontObstacle.isBlocked) 
             {
-                //* console.log(`[PF] Path blocked at step ${this.currentPathIndex}, recalculating...`);
+                console.log(`[PF] Path blocked at step ${this.currentPathIndex}, recalculating...`);
                 // Rescan environment and recalculate path
-                this.performFullEnvironmentScan();
+                this.performIncrementalEnvironmentScan();
                 this.calculateAStarPath();
                 this.currentPathIndex = 0;
                 return { action: 'idle' }; // Wait for next cycle
@@ -567,6 +695,9 @@ class SimplePathfinder
             this.currentPathIndex++;
             const remaining = this.currentPath.length - this.currentPathIndex;
             //* console.log(`[PF] Step ${this.currentPathIndex}/${this.currentPath.length} complete (${remaining} left)`);
+            
+            // Update last position for stuck detection
+            this.lastPosition = this.actions.position();
         }
     }
 
@@ -585,6 +716,7 @@ class SimplePathfinder
     clearIdle()
     {
         this.isIdle = false;
+        this.resetStuckDetection();
         console.log('[PF] Bot cleared from idle');
     }
 
