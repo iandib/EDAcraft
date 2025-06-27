@@ -28,6 +28,17 @@ const INITIAL_WAIT = 3000;
 // Movement execution interval in milliseconds
 const MOVEMENT_INTERVAL = 200;
 
+// Goal coordinates sequence
+const GOAL_SEQUENCE =
+[
+    // {x: -638, y: 68, z: 141, type: 'chest_location'},
+    {x: -700, y: 63, z: 145, type: 'first_checkpoint'},
+    {x: -722, y: 63, z: 145, type: 'bridge_start'},
+    {x: -735, y: 63, z: 145, type: 'bridge_end'},
+    {x: -750, y: 63, z: 145, type: 'second_checkpoint'},
+    {x: -791, y: 103, z: 152, type: 'final-location'}
+];
+
 
 /* **************************************************************************************
     * CLASS IMPLEMENTATIONS *
@@ -49,27 +60,18 @@ class AutonomousBot
         this.bot = bot;
         this.actions = actions;
         this.pathfinder = new SimplePathfinder(actions);
-        this.currentState = 'MOVING';
+        this.currentState = 'MOVING_TO_GOAL';
         this.isRunning = false;
         
-        // Establecer objetivo inicial
-        this.setGoal(-791, 103, 152);
-        //this.setGoal(-700, 71, 140);
+        // Goal management
+        this.currentGoalIndex = 0;
+        this.currentGoal = GOAL_SEQUENCE[0];
+        
+        // Set initial goal
+        this.pathfinder.setGoal(this.currentGoal.x, this.currentGoal.y, this.currentGoal.z);
         
         // Start autonomous behavior after initial wait
         setTimeout(() => this.start(), INITIAL_WAIT);
-    }
-
-    /**
-     * @brief Sets a goal position for the bot to navigate to
-     * @param {number} x - Target X coordinate
-     * @param {number} y - Target Y coordinate
-     * @param {number} z - Target Z coordinate
-     */
-    setGoal(x, y, z)
-    {
-        this.pathfinder.setGoal(x, y, z);
-        this.pathfinder.clearIdle();
     }
 
     /**
@@ -110,43 +112,84 @@ class AutonomousBot
     }
 
     /**
-     * @brief Executes state machine logic using pathfinder decisions
+     * @brief Executes state machine logic
      */
     async executeStateMachine()
     {
         switch (this.currentState)
         {
-            case 'MOVING':
-                // Get movement decision from pathfinder
-                const movement = this.pathfinder.getNextMovement();
-                
-                switch (movement.action)
-                {
-                    case 'jump_and_move':
-                        this.actions.jump();
-                        await this.actions.step(movement.direction);
+            case 'MOVING_TO_GOAL':
+                await this.handleMovingToGoal();
+                break;
+        }
+    }
 
-                        // Mark step as completed for goal-based movement
-                        if (this.pathfinder.isGoalMode)
-                        {
-                            this.pathfinder.completeStep(movement.direction);
-                        }
-                        break;
-                        
-                    case 'move':
-                        await this.actions.step(movement.direction);
-                        
-                        // Mark step as completed for goal-based movement
-                        if (this.pathfinder.isGoalMode)
-                        {
-                            this.pathfinder.completeStep(movement.direction);
-                        }
-                        break;
-                        
-                    case 'idle':
-                        // Bot is idle - either goal reached or impassable obstacle
-                        break;
-                }
+    /**
+     * @brief Handles movement to goal destination with sequential goal progression
+     */
+    async handleMovingToGoal()
+    {
+        // Check if current goal is reached using pathfinder's method
+        if (this.pathfinder.isAtGoal())
+        {
+            console.log(`Reached goal ${this.currentGoalIndex + 1}: ${this.currentGoal.type}`);
+            
+            // Move to next goal in sequence
+            this.currentGoalIndex++;
+            
+            // Check if all goals completed
+            if (this.currentGoalIndex >= GOAL_SEQUENCE.length)
+            {
+                console.log('All goals completed!');
+                //! Debería terminar la ejecución
+                // this.currentState = 'COMPLETED';
+                return;
+            }
+            
+            // Set next goal
+            this.currentGoal = GOAL_SEQUENCE[this.currentGoalIndex];
+            console.log(`Setting next goal: ${this.currentGoal.type} at (${this.currentGoal.x}, ${this.currentGoal.y}, ${this.currentGoal.z})`);
+            
+            // Update pathfinder with new goal
+            this.pathfinder.setGoal(this.currentGoal.x, this.currentGoal.y, this.currentGoal.z);
+            
+            // Small delay before continuing to next goal
+            await this.sleep(1000);
+            return;
+        }
+
+        // Execute pathfinder movement for current goal
+        const movement = this.pathfinder.getNextMovement();
+        await this.executeMovement(movement);
+    }
+
+    /**
+     * @brief Executes movement commands from pathfinder
+     * @param {Object} movement - Movement object from pathfinder
+     */
+    async executeMovement(movement)
+    {
+        switch (movement.action)
+        {
+            case 'jump_and_move':
+                this.actions.jump();
+                await this.actions.step(movement.direction);
+
+                // Mark step as completed for goal-based movement
+                if (this.pathfinder.isGoalMode)
+                    {this.pathfinder.completeStep(movement.direction);}
+                break;
+                
+            case 'move':
+                await this.actions.step(movement.direction);
+                
+                // Mark step as completed for goal-based movement
+                if (this.pathfinder.isGoalMode)
+                    {this.pathfinder.completeStep(movement.direction);}
+                break;
+            
+            // Bot is idle - either goal reached or impassable obstacle
+            case 'idle':
                 break;
         }
     }

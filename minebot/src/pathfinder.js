@@ -31,7 +31,7 @@ const DIRECTION_OFFSETS =
 const BLOCK_COSTS = 
 {
     air: 1,           // Standard movement cost
-    water: 100,        // High cost for water traversal
+    water: Infinity,        // Impassable - infinite cost
     lava: Infinity,   // Impassable - infinite cost
     // All other solid blocks default to 1 unless marked as impassable
 };
@@ -681,7 +681,6 @@ class SimplePathfinder
         return { canJump: false, isBlocked: false };
     }
 
-    // TODO test
     /**
      * @brief Marks a step as completed only when bot actually moves to new coordinates
      * @param {string} direction - Direction that was completed (for compatibility)

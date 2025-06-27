@@ -59,7 +59,7 @@ class BotActions
     }
 
     //* MOVEMENT AND NAVIGATION
-    //! Agregar método de spawn
+
     //! Pasar la parte de look en step a su propio comando
     /**
      * @brief Executes a single step movement in a cardinal direction
