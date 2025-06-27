@@ -161,6 +161,22 @@ class BotActions
     }
 
     /**
+     * @brief Retrieves spawn point coordinates
+     * @returns {Object|null} Spawn point coordinates or null if not available
+     */
+    spawnPoint()
+    {
+        if (this.bot.spawnPoint) {
+            return {
+                x: this.bot.spawnPoint.x,
+                y: this.bot.spawnPoint.y,
+                z: this.bot.spawnPoint.z
+            };
+        }
+        return null;
+    }
+
+    /**
      * @brief Locates the nearest block of specified type within search radius
      * @param {string} blockType - Name of the block type to search for
      * @param {number} maxDistance - Maximum search distance (default: 16)

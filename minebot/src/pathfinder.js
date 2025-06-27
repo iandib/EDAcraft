@@ -87,7 +87,7 @@ class SimplePathfinder
      */
     constructor(actions)
     {
-        console.log('[PF] Initializing pathfinder...');
+        //* console.log('[PF] Initializing pathfinder...');
         this.actions = actions;
         this.currentDirection = 'east';
         
@@ -125,6 +125,10 @@ class SimplePathfinder
         // Record the bot's starting position when goal is set
         this.startPosition = this.actions.position();
         console.log(`[PF] Bot start: x:${this.startPosition.x}, y:${this.startPosition.y}, z:${this.startPosition.z}`);
+
+        // Record and print the spawn point position
+        const spawnPoint = this.actions.spawnPoint();
+        //* console.log(`[PF] Spawn point: x:${spawnPoint.x}, y:${spawnPoint.y}, z:${spawnPoint.z}`);
         
         this.goalPosition = {x, y, z};
         this.isGoalMode = true;
@@ -236,7 +240,7 @@ class SimplePathfinder
         
         // Build pathfinding grid with costs
         this.buildPathfindingGrid();
-        console.log('[PF] Full environment scan complete');
+        //* console.log('[PF] Full environment scan complete');
     }
 
     /**
@@ -457,7 +461,8 @@ class SimplePathfinder
         // Goal-based A* movement
         if (this.isGoalMode) 
         {
-            if (this.currentPathIndex >= this.currentPath.length) 
+            //! Marca que llegó al goal erróneamente
+            if (this.currentPathIndex >= this.currentPath.length)
             {
                 console.log('[PF] Goal reached!');
                 this.isGoalMode = false;
@@ -498,7 +503,7 @@ class SimplePathfinder
             } 
             else if (frontObstacle.isBlocked) 
             {
-                //* console.log(`[PF] Path blocked at step ${this.currentPathIndex}, recalculating...`);
+                console.log(`[PF] Path blocked`);
                 // Rescan environment and recalculate path
                 this.performFullEnvironmentScan();
                 this.calculateAStarPath();

@@ -53,7 +53,8 @@ class AutonomousBot
         this.isRunning = false;
         
         // Establecer objetivo inicial
-        this.setGoal(-791, 103, 152);
+        //this.setGoal(-791, 103, 152);
+        this.setGoal(-640, 71, 128);
         
         // Start autonomous behavior after initial wait
         setTimeout(() => this.start(), INITIAL_WAIT);
@@ -99,6 +100,7 @@ class AutonomousBot
                 // Wait before next cycle
                 await this.sleep(MOVEMENT_INTERVAL);
             }
+
             catch (error)
             {
                 console.log(`Movement error: ${error.message}`);
@@ -127,6 +129,7 @@ class AutonomousBot
                     case 'jump_and_move':
                         this.actions.jump();
                         await this.actions.step(movement.direction);
+
                         // Mark step as completed for goal-based movement
                         if (this.pathfinder.isGoalMode)
                         {
@@ -136,6 +139,7 @@ class AutonomousBot
                         
                     case 'move':
                         await this.actions.step(movement.direction);
+                        
                         // Mark step as completed for goal-based movement
                         if (this.pathfinder.isGoalMode)
                         {
