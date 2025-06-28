@@ -115,6 +115,10 @@ class SimplePathfinder
         // Step counter for periodic rescanning
         this.stepCount = 0;
         this.lastRescanStep = 0;
+
+        // Stuck detection system
+        this.positionHistory = [];
+        this.maxHistorySize = 5;
         
         console.log('[PF] Pathfinder initialized');
     }
@@ -668,39 +672,49 @@ class SimplePathfinder
      */
     completeStep(direction)
     {
+        const currentPos = this.actions.position();
+        
+        // Add current position to history
+        this.positionHistory.push({
+            x: currentPos.x,
+            z: currentPos.z,
+            timestamp: Date.now()
+        });
+        
+        // Keep only the last N positions
+        if (this.positionHistory.length > this.maxHistorySize) {
+            this.positionHistory.shift();
+        }
+        
         if (this.currentPathIndex < this.currentPath.length) 
         {
-            const currentPos = this.actions.position();
             const targetStep = this.currentPath[this.currentPathIndex];
             
-            // Only increment if bot is actually at the target coordinates
+            // Only increment if bot is at target coordinates
             if (currentPos.x === targetStep.x && currentPos.z === targetStep.z) 
             {
                 this.currentPathIndex++;
                 this.stepCount++;
                 const remaining = this.currentPath.length - this.currentPathIndex;
                 console.log(`[PF] Step ${this.currentPathIndex}/${this.currentPath.length} complete (${remaining} left)`);
+                
+                // Reset history on successful step completion
+                this.positionHistory = [];
             }
-
+            
             else 
             {
                 console.log(`[PF] Step not completed - bot at (${currentPos.x},${currentPos.z}), target (${targetStep.x},${targetStep.z})`);
                 
-                // Check if bot is at a position that requires jumping
-                const currentCoordKey = `${currentPos.x},${currentPos.z}`;
-                const targetCoordKey = `${targetStep.x},${targetStep.z}`;
-                
-                if (!this.jumpCoords.has(currentCoordKey) && !this.jumpCoords.has(targetCoordKey)) 
+                // Check if bot is stuck (same position for 5 iterations)
+                if (this.isBotStuck())
                 {
-                    // Only force unstuck movement if neither current nor target position requires jumping
+                    console.log(`[PF] Bot detected as stuck - forcing unstuck movement`);
                     const unstuckDirection = this.getPerpendicularDirection(this.currentDirection);
-                    console.log(`[PF] Forcing unstuck step: ${unstuckDirection}`);
                     this.actions.step(unstuckDirection);
-                }
-
-                else 
-                {
-                    console.log(`[PF] Position requires jumping, not forcing unstuck movement`);
+                    
+                    // Reset history after forcing movement
+                    this.positionHistory = [];
                 }
             }
         }
@@ -722,6 +736,34 @@ class SimplePathfinder
         };
         
         return perpendicularMap[direction] || 'west';
+    }
+
+    /**
+     * @brief Checks if bot is stuck by comparing recent positions
+     * @returns {boolean} True if bot hasn't moved in recent iterations
+     */
+    isBotStuck()
+    {
+        // Need full history to detect stuck
+        if (this.positionHistory.length < this.maxHistorySize)
+        {
+            return false;
+        }
+        
+        // Compare all positions in history
+        const firstPos = this.positionHistory[0];
+        
+        for (let i = 1; i < this.positionHistory.length; i++)
+        {
+            const pos = this.positionHistory[i];
+            if (pos.x !== firstPos.x || pos.z !== firstPos.z)
+            {
+                return false; // Movement found
+            }
+        }
+        
+        console.log(`[PF] Bot stuck at position (${firstPos.x}, ${firstPos.z}) for ${this.maxHistorySize} iterations`);
+        return true;
     }
 }
 

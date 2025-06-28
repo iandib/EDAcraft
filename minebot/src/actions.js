@@ -6,7 +6,7 @@
     * @author      Ian A. Dib
     * @author      Luciano S. Cordero
     * @date        2025-06-07
-    * @version     3.0 - Deleted unused commands
+    * @version     4.0 - Added aditional commands from feature/inventory-management branch
 
     ************************************************************************************* */
 
@@ -172,6 +172,118 @@ class BotActions
             };
         }
         return null;
+    }
+
+    //* WORLD INTERACTION
+
+    /**
+     * @brief Opens a chest at specified coordinates
+     * @param {number} x - X coordinate of the chest
+     * @param {number} y - Y coordinate of the chest
+     * @param {number} z - Z coordinate of the chest
+     * @returns {boolean} True if chest opened successfully
+     * @throws {Error} If block is not found or cannot be opened as chest
+     */
+    async openChestAt(x, y, z)
+    {
+        const block = this.bot.blockAt(new Vec3(x, y, z));
+        
+        if (!block)
+        {
+            throw new Error("Block not found at specified coordinates");
+        }
+
+        try
+        {
+            this.chestWindow = await this.bot.openChest(block);
+            return true;
+        }
+
+        catch (error)
+        {
+            throw new Error(`Failed to open chest: ${error.message}`);
+        }
+    }
+
+    /**
+     * @brief Retrieves contents of currently open chest
+     * @returns {Array} Array of items in the chest with slot, name, and count
+     * @throws {Error} If no chest is currently open
+     */
+    getChestContents()
+    {
+        if (!this.chestWindow)
+        {
+            throw new Error("No chest is currently open");
+        }
+
+        return this.chestWindow.containerItems().map(item => ({
+            slot: item.slot,
+            name: item.name,
+            count: item.count
+        }));
+    }
+
+    /**
+     * @brief Closes the currently open chest
+     * @returns {boolean} True if chest was closed successfully
+     * @throws {Error} If no chest is currently open
+     */
+    closeChest()
+    {
+        if (!this.chestWindow)
+        {
+            throw new Error("No chest is currently open");
+        }
+
+        this.chestWindow.close();
+        this.chestWindow = null;
+        return true;
+    }
+
+    /**
+     * @brief Sends a message to the game chat
+     * @param {string} message - Message to send to chat
+     * @returns {boolean} Always returns true after sending message
+     */
+    chat(message)
+    {
+        this.bot.chat(message);
+        return true;
+    }
+
+    /**
+     * @brief Digs/breaks a block at specified coordinates
+     * @param {number} x - X coordinate of the block to dig
+     * @param {number} y - Y coordinate of the block to dig
+     * @param {number} z - Z coordinate of the block to dig
+     * @returns {boolean} True if block was successfully dug
+     * @throws {Error} If block cannot be dug or is not found
+     */
+    async dig_block(x, y, z)
+    {
+        const blockToDig = this.bot.blockAt(new Vec3(x, y, z));
+
+        if (!blockToDig)
+        {
+            throw new Error("Block not found at specified coordinates");
+        }
+
+        if (!this.bot.canDigBlock(blockToDig))
+        {
+            throw new Error("Cannot dig this block (protected or invalid)");
+        }
+
+        try
+        {
+            await this.bot.dig(blockToDig);
+            return true;
+        }
+
+        catch (error)
+        {
+            throw new Error(`Failed to dig block: ${error.message}`);
+        }
     }
 }
 
