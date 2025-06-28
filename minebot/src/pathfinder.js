@@ -513,9 +513,6 @@ class SimplePathfinder
                 }
             }
         }
-        
-        console.log('[PF] ERROR: A* failed - no path found');
-        return [];
     }
 
     /**
@@ -701,7 +698,7 @@ class SimplePathfinder
                 // Reset history on successful step completion
                 this.positionHistory = [];
             }
-            
+
             else 
             {
                 console.log(`[PF] Step not completed - bot at (${currentPos.x},${currentPos.z}), target (${targetStep.x},${targetStep.z})`);

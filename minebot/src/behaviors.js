@@ -248,7 +248,7 @@ class AutonomousBot
         {
             // Open chest
             console.log('Opening chest...');
-            await this.actions.openChestAt(this.chest.x, this.chest.y, this.chest.z);
+            await this.actions.openChestAt(chest.x, chest.y, chest.z);
             
             // Get chest contents
             const contents = this.actions.getChestContents();
@@ -289,7 +289,6 @@ class AutonomousBot
      */
     async handleMining()
     {
-        // Example logic, not implemented in the states machine flow
         try
         {
             const pos = this.actions.position();
@@ -300,9 +299,18 @@ class AutonomousBot
                 console.log(`Mining block: ${nextBlock.name}`);
                 await this.actions.dig_block(pos.x, pos.y, pos.z + 1);
             }
-            
+            //! Error en esta lógica
             // Move to next goal in sequence
             this.currentGoalIndex++;
+            
+            // Update current goal and pathfinder
+            this.currentGoal = GOAL_SEQUENCE[this.currentGoalIndex];
+            console.log(`Setting next goal after mining: ${this.currentGoal.type} at (${this.currentGoal.x}, ${this.currentGoal.y}, ${this.currentGoal.z})`);
+            
+            // Set new goal in pathfinder
+            this.pathfinder.setGoal(this.currentGoal.x, this.currentGoal.y, this.currentGoal.z);
+            
+            // Return to movement state
             this.currentState = 'MOVING_TO_GOAL';
         }
 
