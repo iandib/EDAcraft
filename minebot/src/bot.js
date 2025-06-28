@@ -15,9 +15,10 @@
     * INCLUDES AND DEPENDENCIES *
    ************************************************************************************** */
 
+//! Test
 const mineflayer = require('mineflayer');
-const { pathfinder, Movements } = require('mineflayer-pathfinder');
-const { mineflayer: mineflayerViewer } = require('prismarine-viewer');
+const {pathfinder, Movements} = require('mineflayer-pathfinder');
+const {mineflayer: mineflayerViewer} = require('prismarine-viewer');
 
 const BotActions = require('./actions');
 const NavigationStateMachine = require('./behaviors');
@@ -110,8 +111,7 @@ class MinecraftBot
         this.bot.on('login', () =>
         {console.log(`Bot logged in as ${this.bot.username}`);});
 
-        this.bot.once('spawn', () =>
-        {this.onSpawn();});
+        this.bot.once('spawn', () => {this.onSpawn();});
 
         this.bot.on('end', () =>
         {
@@ -134,7 +134,9 @@ class MinecraftBot
         console.log('Bot spawned successfully');
         
         if (!this.viewerStarted)
-            {this.setupViewer();}
+        {
+            this.setupViewer();
+        }
         
         this.actions = new BotActions(this.bot);
         this.stateMachine = new NavigationStateMachine(this.bot, this.actions);
@@ -161,7 +163,9 @@ class MinecraftBot
         }
         
         catch (error)
-        {console.error('Failed to start viewer:', error);}
+        {
+            console.error('Failed to start viewer:', error);
+        }
     }
 }
 
@@ -184,10 +188,14 @@ async function main()
         {
             console.log('\nShutting down bot...');
             if (minecraftBot.stateMachine)
-                {minecraftBot.stateMachine.stop();}
+            {
+                minecraftBot.stateMachine.stop();
+            }
             
             if (minecraftBot.bot)
-                {minecraftBot.bot.quit();}
+            {
+                minecraftBot.bot.quit();
+            }
             process.exit(0);
         });
     }
@@ -200,6 +208,8 @@ async function main()
 }
 
 if (require.main === module) 
-    {main();}
+{
+    main();
+}
 
 module.exports = MinecraftBot;

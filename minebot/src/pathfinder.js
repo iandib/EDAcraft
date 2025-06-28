@@ -6,7 +6,7 @@
     * @author      Ian A. Dib
     * @author      Luciano S. Cordero
     * @date        2025-06-27
-    * @version     3.2 - Incremental scanning and proper goal detection
+    * @version     4.0 - Deleted unused methods and flags
 
     ************************************************************************************* */
 
@@ -28,12 +28,12 @@ const DIRECTION_OFFSETS =
 };
 
 // Block traversal costs for pathfinding weights
+// All other solid blocks default to 1 unless marked as impassable
 const BLOCK_COSTS = 
 {
     air: 1,           // Standard movement cost
-    water: Infinity,        // Impassable - infinite cost
+    water: Infinity,  // Impassable - infinite cost
     lava: Infinity,   // Impassable - infinite cost
-    // All other solid blocks default to 1 unless marked as impassable
 };
 
 // Grid scanning dimensions (3x3x3 around bot)
@@ -45,7 +45,7 @@ const RESCAN_INTERVAL = 5;
 
 
 /* **************************************************************************************
-    * UTILITY CLASSES FOR A* IMPLEMENTATION *
+    * UTILITY CLASS FOR A* IMPLEMENTATION *
    ************************************************************************************** */
 
 /**
@@ -58,10 +58,10 @@ class PathNode
     {
         this.x = x;
         this.z = z;
-        this.gCost = gCost;      // Distance from start node
-        this.hCost = hCost;      // Heuristic distance to goal
-        this.fCost = gCost + hCost; // Total cost
-        this.parent = parent;    // Parent node for path reconstruction
+        this.gCost = gCost;          // Distance from start node
+        this.hCost = hCost;          // Heuristic distance to goal
+        this.fCost = gCost + hCost;  // Total cost
+        this.parent = parent;        // Parent node for path reconstruction
     }
 
     // Update costs and recalculate fCost
@@ -96,21 +96,21 @@ class SimplePathfinder
         // Bot starting position - initialized when goal is set
         this.startPosition = null;
         
-        // 2D grid for pathfinding (x,z coordinates with traversal costs)
-        this.grid = new Map(); // Key: "x,z", Value: cost
+        // 2D grid for pathfinding (Key: "x,z", Value: cost)
+        this.grid = new Map();
         
-        // Set of impassable coordinates from 3D environment scanning
-        this.impassableCoords = new Set(); // Stores "x,z" strings
+        // Set of impassable coordinates and coordinates where bot needs to jump
+        this.impassableCoords = new Set();
+        this.jumpCoords = new Set();
         
         // Goal-based navigation with A* path
         this.goalPosition = null;
-        this.currentPath = [];        // Array of {x, z} coordinates
-        this.currentPathIndex = 0;    // Current step in the path
-        this.isGoalMode = false;
-        this.isIdle = false;
+        this.currentPath = []; 
+        this.currentPathIndex = 0;
         
-        // Environment scanning results - persistent across scans
-        this.environmentData = new Map(); // Key: "x,y,z", Value: block info
+        // Environment scanning results (Key: "x,y,z", Value: block info)
+        this.environmentData = new Map();
+        this.isFirstScan = true;
         
         // Step counter for periodic rescanning
         this.stepCount = 0;
@@ -132,23 +132,57 @@ class SimplePathfinder
         // Record the bot's starting position when goal is set
         this.startPosition = this.actions.position();
         console.log(`[PF] Bot start: x:${this.startPosition.x}, y:${this.startPosition.y}, z:${this.startPosition.z}`);
-
-        // Record and print the spawn point position
-        const spawnPoint = this.actions.spawnPoint();
         
         this.goalPosition = {x, y, z};
-        this.isGoalMode = true;
-        this.isIdle = false;
         this.currentPathIndex = 0;
         this.stepCount = 0;
         
         // Perform initial environment scan and build grid
-        this.performInitialEnvironmentScan();
+        this.performEnvironmentScan();
         
         // Calculate A* path from start to goal
         this.calculateAStarPath();
         
         console.log(`[PF] Goal set complete. Path has ${this.currentPath.length} steps`);
+    }
+
+    //* ENVIRONMENT OPERATIONS
+
+    /**
+     * @brief Performs full environment scan and builds grid
+     */
+    performEnvironmentScan()
+    {
+        if (this.isFirstScan) 
+        {
+            console.log('[PF] Initial environment scan starting');
+            this.isFirstScan = false;
+
+            // Clear data only on first scan
+            this.impassableCoords.clear();
+            this.jumpCoords.clear();
+            this.grid.clear();
+            this.environmentData.clear();
+
+            // Scan current environment
+            this.scanEnvironment();
+            this.reactToEnvironment();
+            
+            // Build pathinding grid
+            this.buildPathfindingGrid();
+        }
+
+        else 
+        {
+            console.log('[PF] Incremental environment scan starting');
+
+            // Scan current environment
+            this.scanEnvironment();
+            this.reactToEnvironment();
+
+            // Update pathfinding grid
+            this.updatePathfindingGrid();
+        }
     }
 
     /**
@@ -157,8 +191,8 @@ class SimplePathfinder
     scanEnvironment()
     {
         const botPos = this.actions.position();
-        
         let blockCount = 0;
+
         // Scan 3x3x3 area around bot (from bot's feet level to 2 blocks above)
         for (let dx = -SCAN_RADIUS; dx <= SCAN_RADIUS; dx++) 
         {
@@ -185,10 +219,10 @@ class SimplePathfinder
                 }
             }
         }
+
         console.log(`[PF] Scanned ${blockCount} blocks in environment`);
     }
 
-    //! Al igual que se guardan las impassableCoords, guardar jumpCoords
     /**
      * @brief Analyzes scanned environment and updates impassable coordinates
      */
@@ -196,6 +230,7 @@ class SimplePathfinder
     {
         const botPos = this.actions.position();
         let newImpassableCount = 0;
+        let newJumpCount = 0;
         
         // Check each position in the scanned area
         for (let dx = -SCAN_RADIUS; dx <= SCAN_RADIUS; dx++) 
@@ -216,62 +251,40 @@ class SimplePathfinder
                 const hasFeetBlock = feetBlock && !feetBlock.isEmpty;
                 const hasAboveBlock = aboveBlock && !aboveBlock.isEmpty;
                 
+                // Remove from both sets first
+                const wasImpassable = this.impassableCoords.has(coordKey);
+                const wasJump = this.jumpCoords.has(coordKey);
+                this.impassableCoords.delete(coordKey);
+                this.jumpCoords.delete(coordKey);
+                
+                // Impassable: head blocked OR (feet blocked AND above blocked)
                 if (hasHeadBlock || (hasFeetBlock && hasAboveBlock)) 
                 {
-                    if (!this.impassableCoords.has(coordKey)) {
-                        newImpassableCount++;
-                    }
+                    if (!wasImpassable) newImpassableCount++;
                     this.impassableCoords.add(coordKey);
                 }
-                else 
+
+                // Jump required: only feet blocked, head and above clear
+                else if (hasFeetBlock && !hasHeadBlock && !hasAboveBlock)
                 {
-                    // Position is now passable, remove from impassable set if it was there
-                    if (this.impassableCoords.has(coordKey)) {
-                        this.impassableCoords.delete(coordKey);
-                    }
+                    if (!wasJump) newJumpCount++;
+                    this.jumpCoords.add(coordKey);
                 }
             }
         }
         
-        if (newImpassableCount > 0) {
+        if (newImpassableCount > 0)
+        {
             console.log(`[PF] Found ${newImpassableCount} new impassable coordinates`);
+        }
+
+        if (newJumpCount > 0)
+        {
+            console.log(`[PF] Found ${newJumpCount} new jump coordinates`);
         }
     }
 
-    //! Unir los dos métodos de EnvironmentScan, agregar una flag para verificar si debe hacer un clear al inicio o no
-    /**
-     * @brief Performs initial full environment scan and builds grid
-     */
-    performInitialEnvironmentScan()
-    {
-        // Clear data for initial scan
-        this.impassableCoords.clear();
-        this.grid.clear();
-        this.environmentData.clear();
-        
-        // Scan current environment
-        this.scanEnvironment();
-        this.reactToEnvironment();
-        
-        // Build pathfinding grid with costs
-        this.buildPathfindingGrid();
-        console.log('[PF] Initial environment scan complete');
-    }
-
-    /**
-     * @brief Performs incremental environment scan and updates grid
-     */
-    performIncrementalEnvironmentScan()
-    {
-        // Scan current environment (adds to existing data)
-        this.scanEnvironment();
-        this.reactToEnvironment();
-        
-        // Update pathfinding grid with new costs
-        this.updatePathfindingGrid();
-        console.log('[PF] Incremental environment scan complete');
-    }
-
+    //! Combinar métodos de build y update Pathfinding Grid usando flags
     /**
      * @brief Builds 2D pathfinding grid with traversal costs based on environment
      */
@@ -290,19 +303,21 @@ class SimplePathfinder
         const maxZ = Math.max(this.startPosition.z, this.goalPosition.z) + 5;
         
         let gridCells = 0;
+
         // Build grid with costs
         for (let x = minX; x <= maxX; x++) 
         {
             for (let z = minZ; z <= maxZ; z++) 
             {
                 const coordKey = `${x},${z}`;
-                let cost = 1; // Default cost for air/passable blocks
+                let cost = 1; // Default block cost
                 
                 // Check if coordinate is marked as impassable
                 if (this.impassableCoords.has(coordKey)) 
                 {
                     cost = Infinity;
                 } 
+
                 else 
                 {
                     // Check block type at feet level for special costs
@@ -321,7 +336,6 @@ class SimplePathfinder
         console.log(`[PF] Grid built: ${maxX - minX + 1}x${maxZ - minZ + 1} = ${gridCells} cells`);
     }
 
-    //? Verificar si el escaneo de radio en esto se pisa con el de reactToEnvironment
     /**
      * @brief Updates existing pathfinding grid with new cost information
      */
@@ -329,6 +343,7 @@ class SimplePathfinder
     {
         if (!this.startPosition || !this.goalPosition) 
         {
+            console.log('[PF] ERROR: Start or goal position missing');
             return;
         }
         
@@ -344,13 +359,14 @@ class SimplePathfinder
                 const z = botPos.z + dz;
                 const coordKey = `${x},${z}`;
                 
-                let cost = 1; // Default cost for air/passable blocks
+                let cost = 1; // Default block cost
                 
                 // Check if coordinate is marked as impassable
                 if (this.impassableCoords.has(coordKey)) 
                 {
                     cost = Infinity;
                 } 
+
                 else 
                 {
                     // Check block type at feet level for special costs
@@ -362,13 +378,18 @@ class SimplePathfinder
                 }
                 
                 // Update grid if this position exists in our grid
-                if (this.grid.has(coordKey)) {
+                if (this.grid.has(coordKey))
+                {
                     const oldCost = this.grid.get(coordKey);
-                    if (oldCost !== cost) {
+                    if (oldCost !== cost)
+                    {
                         this.grid.set(coordKey, cost);
                         updatedCells++;
                     }
-                } else {
+                }
+                
+                else
+                {
                     // Add new grid cell if within reasonable bounds
                     this.grid.set(coordKey, cost);
                     updatedCells++;
@@ -376,23 +397,13 @@ class SimplePathfinder
             }
         }
         
-        if (updatedCells > 0) {
+        if (updatedCells > 0)
+        {
             console.log(`[PF] Updated ${updatedCells} grid cells`);
         }
     }
 
-    /**
-     * @brief Calculates Manhattan distance heuristic for A* algorithm
-     * @param {number} x1 - Start X coordinate
-     * @param {number} z1 - Start Z coordinate  
-     * @param {number} x2 - End X coordinate
-     * @param {number} z2 - End Z coordinate
-     * @returns {number} Manhattan distance
-     */
-    manhattanDistance(x1, z1, x2, z2)
-    {
-        return Math.abs(x1 - x2) + Math.abs(z1 - z2);
-    }
+    //* A-STAR PATH CALCULATION
 
     /**
      * @brief Implements A* pathfinding algorithm to find optimal path
@@ -408,13 +419,12 @@ class SimplePathfinder
             return [];
         }
         
-        const startNode = new PathNode(
-            this.currentPosition.x, 
-            this.currentPosition.z, 
-            0, 
-            this.manhattanDistance(this.currentPosition.x, this.currentPosition.z, this.goalPosition.x, this.goalPosition.z)
+        const hCost = this.manhattanDistance(
+            this.currentPosition.x, this.currentPosition.z,
+            this.goalPosition.x, this.goalPosition.z
         );
-        
+        const startNode = new PathNode(this.currentPosition.x, this.currentPosition.z, 0, hCost);
+
         const openSet = [startNode];  // Nodes to be evaluated
         const closedSet = new Set();  // Nodes already evaluated (using "x,z" strings)
         const allNodes = new Map();   // All created nodes for quick lookup
@@ -440,7 +450,7 @@ class SimplePathfinder
             openSet.splice(currentIndex, 1);
             closedSet.add(`${currentNode.x},${currentNode.z}`);
             
-            // Check if we reached the goal
+            // Check if the reconstructed Path is at the goal
             if (currentNode.x === this.goalPosition.x && currentNode.z === this.goalPosition.z) 
             {
                 this.currentPath = this.reconstructPath(currentNode);
@@ -467,19 +477,27 @@ class SimplePathfinder
                 // Check if we have this neighbor in our nodes
                 let neighborNode = allNodes.get(neighborKey);
                 
+                // Create new neighbor node
                 if (!neighborNode) 
                 {
-                    // Create new neighbor node
-                    const hCost = this.manhattanDistance(neighborX, neighborZ, this.goalPosition.x, this.goalPosition.z);
+                    const hCost = this.manhattanDistance(
+                        neighborX, neighborZ, 
+                        this.goalPosition.x, this.goalPosition.z
+                    );
+
                     neighborNode = new PathNode(neighborX, neighborZ, tentativeGCost, hCost, currentNode);
                     allNodes.set(neighborKey, neighborNode);
                     openSet.push(neighborNode);
                 }
 
+                // Better path to this neighbor found
                 else if (tentativeGCost < neighborNode.gCost) 
                 {
-                    // Better path to this neighbor found
-                    const hCost = this.manhattanDistance(neighborX, neighborZ, this.goalPosition.x, this.goalPosition.z);
+                    const hCost = this.manhattanDistance(
+                        neighborX, neighborZ, 
+                        this.goalPosition.x, this.goalPosition.z
+                    );
+
                     neighborNode.updateCosts(tentativeGCost, hCost);
                     neighborNode.parent = currentNode;
                     
@@ -493,8 +511,20 @@ class SimplePathfinder
         }
         
         console.log('[PF] ERROR: A* failed - no path found');
-        this.setIdle();
         return [];
+    }
+
+    /**
+     * @brief Calculates Manhattan distance heuristic for A* algorithm
+     * @param {number} x1 - Start X coordinate
+     * @param {number} z1 - Start Z coordinate  
+     * @param {number} x2 - End X coordinate
+     * @param {number} z2 - End Z coordinate
+     * @returns {number} Manhattan distance
+     */
+    manhattanDistance(x1, z1, x2, z2)
+    {
+        return Math.abs(x1 - x2) + Math.abs(z1 - z2);
     }
 
     /**
@@ -509,16 +539,114 @@ class SimplePathfinder
         
         while (currentNode !== null) 
         {
-            path.unshift(
-            { 
-                x: currentNode.x, 
-                z: currentNode.z 
-            });
+            path.unshift({x: currentNode.x, z: currentNode.z});
             currentNode = currentNode.parent;
         }
         
         console.log(`[PF] Path reconstructed: ${path.length} steps`);
         return path;
+    }
+
+    //* MOVEMENT RESPONSE
+
+    /**
+     * @brief Gets next movement action based on A* path and immediate obstacles
+     * @returns {Object} Movement decision with action type and parameters
+     */
+    getNextMovement()
+    {
+        this.currentPosition = this.actions.position();
+        console.log(`[PF] Bot position: x:${this.currentPosition.x}, y:${this.currentPosition.y}, z:${this.currentPosition.z}`);
+
+        // Check if we've reached the goal using coordinates
+        if (this.isAtGoal()) 
+        {
+            console.log('[PF] Goal reached');
+            return {action: 'idle'};
+        }
+        
+        // Check if we need to perform incremental scan
+        if (this.stepCount % RESCAN_INTERVAL === 0 && this.lastRescanStep !== this.stepCount) 
+        {
+            console.log('rescan')
+            this.performEnvironmentScan();
+            
+            // Recalculate path with updated environment
+            this.calculateAStarPath();
+            this.currentPathIndex = 0;
+            this.lastRescanStep = this.stepCount;
+        }
+
+        if (this.currentPathIndex >= this.currentPath.length)
+        {
+            console.log('[PF] Path completed but goal not reached');
+            this.calculateAStarPath();
+            this.currentPathIndex = 0;
+
+            if (this.currentPath.length === 0)
+            {
+                console.log('[PF] No path found, setting idle');
+                return {action: 'idle'};
+            }
+        }
+
+        const nextStep = this.currentPath[this.currentPathIndex];
+        const currentPos = this.actions.position();
+        
+        // Check if current position requires jumping
+        const currentCoordKey = `${currentPos.x},${currentPos.z}`;
+        if (this.jumpCoords.has(currentCoordKey)) 
+        {
+            console.log(`[PF] Jump required at current position (${currentPos.x},${currentPos.z})`);
+            
+            // Determine direction to next step
+            const deltaX = nextStep.x - currentPos.x;
+            const deltaZ = nextStep.z - currentPos.z;
+            
+            let targetDirection = null;
+            if (deltaX > 0) targetDirection = 'east';
+            else if (deltaX < 0) targetDirection = 'west';
+            else if (deltaZ > 0) targetDirection = 'south';
+            else if (deltaZ < 0) targetDirection = 'north';
+            
+            if (targetDirection)
+            {
+                this.currentDirection = targetDirection;
+                return {action: 'jump_and_move', direction: this.currentDirection};
+            }
+        }
+        
+        // Determine direction to next step
+        const deltaX = nextStep.x - currentPos.x;
+        const deltaZ = nextStep.z - currentPos.z;
+        
+        //! Código repetido
+
+        let targetDirection = null;
+        if (deltaX > 0) targetDirection = 'east';
+        else if (deltaX < 0) targetDirection = 'west';
+        else if (deltaZ > 0) targetDirection = 'south';
+        else if (deltaZ < 0) targetDirection = 'north';
+        
+        if (!targetDirection) 
+        {
+            // Already at target step, move to next
+            this.currentPathIndex++;
+            return this.getNextMovement();
+        }
+        
+        this.currentDirection = targetDirection;
+        
+        // Check if next position requires jumping
+        const nextCoordKey = `${nextStep.x},${nextStep.z}`;
+        if (this.jumpCoords.has(nextCoordKey)) 
+        {
+            console.log(`[PF] Jump required for next step (${nextStep.x},${nextStep.z})`);
+            return {action: 'jump_and_move', direction: this.currentDirection};
+        }
+        
+        // Regular movement
+        return {action: 'move', direction: this.currentDirection};
     }
 
     /**
@@ -533,161 +661,14 @@ class SimplePathfinder
         return currentPos.x === this.goalPosition.x && 
                currentPos.z === this.goalPosition.z;
     }
-
-    //! Usar el estado idle en lugar del método
-    /**
-     * @brief Gets next movement action based on A* path and immediate obstacles
-     * @returns {Object} Movement decision with action type and parameters
-     */
-    getNextMovement()
-    {
-        this.currentPosition = this.actions.position();
-        console.log(`[PF] Bot position: x:${this.currentPosition.x}, y:${this.currentPosition.y}, z:${this.currentPosition.z}`);
-
-        // If idle, don't move
-        if (this.isIdle) 
-        {
-            return { action: 'idle' };
-        }
-
-        // Goal-based A* movement
-        if (this.isGoalMode) 
-        {
-            // Check if we've reached the goal using coordinates
-            if (this.isAtGoal()) 
-            {
-                console.log('[PF] Goal reached!');
-                this.isGoalMode = false;
-                return { action: 'idle' };
-            }
-            
-            // Check if we need to perform incremental scan
-            if (this.stepCount % RESCAN_INTERVAL === 0 && this.lastRescanStep !== this.stepCount) 
-            {
-                console.log('rescan')
-                this.performIncrementalEnvironmentScan();
-                
-                // Recalculate path with updated environment
-                this.calculateAStarPath();
-                this.currentPathIndex = 0;
-                this.lastRescanStep = this.stepCount;
-            }
-
-            if (this.currentPathIndex >= this.currentPath.length)
-            {
-                console.log('[PF] Path completed but goal not reached, recalculating...');
-                this.calculateAStarPath();
-                this.currentPathIndex = 0;
-
-                //? Verificar si este if es necesario
-                if (this.currentPath.length === 0) {
-                    console.log('[PF] No path found, setting idle');
-                    this.setIdle();
-                    return { action: 'idle' };
-                }
-            }
-
-            const nextStep = this.currentPath[this.currentPathIndex];
-            const currentPos = this.actions.position();
-            
-            // Determine direction to next step
-            const deltaX = nextStep.x - currentPos.x;
-            const deltaZ = nextStep.z - currentPos.z;
-            
-            let targetDirection = null;
-            if (deltaX > 0) targetDirection = 'east';
-            else if (deltaX < 0) targetDirection = 'west';
-            else if (deltaZ > 0) targetDirection = 'south';
-            else if (deltaZ < 0) targetDirection = 'north';
-            
-            if (!targetDirection) 
-            {
-                // Already at target step, move to next
-                this.currentPathIndex++;
-                return this.getNextMovement();
-            }
-            
-            this.currentDirection = targetDirection;
-            //! En lugar de saltar obstáculos de esta manera, verificar si el bot se encuentra en una coordenada guardada en jumpCoords y ejecutar ese estado
-            //! De lo contrario, ejecuta move o idle cuando corresponda
-            // Check immediate obstacles in front of bot
-            const frontObstacle = this.checkImmediateObstacle();
-            
-            if (frontObstacle.canJump) 
-            {
-                return {
-                    action: 'jump_and_move',
-                    direction: this.currentDirection
-                };
-            } 
-            else if (frontObstacle.isBlocked) 
-            {
-                console.log(`[PF] Path blocked, rescanning and recalculating...`);
-                // Rescan environment and recalculate path
-                this.performIncrementalEnvironmentScan();
-                this.calculateAStarPath();
-                this.currentPathIndex = 0;
-                return { action: 'idle' }; // Wait for next cycle
-            } 
-            else 
-            {
-                return {
-                    action: 'move',
-                    direction: this.currentDirection
-                };
-            }
-        }
-
-        return { action: 'idle' };
-    }
-
-    //! Eliminar este método, la lógica está repetida de reactToEnvironment()
-    /**
-     * @brief Checks immediate obstacle in front of bot (similar to old scanEnvironment logic)
-     * @returns {Object} Obstacle information with canJump and isBlocked flags
-     */
-    checkImmediateObstacle()
-    {
-        const pos = this.actions.position();
-        const offset = DIRECTION_OFFSETS[this.currentDirection];
-        const frontPos = 
-        { 
-            x: pos.x + offset.x, 
-            z: pos.z + offset.z 
-        };
-        
-        // Check blocks at different heights in front
-        const feetBlock = this.actions.block_at(frontPos.x, pos.y, frontPos.z);
-        const headBlock = this.actions.block_at(frontPos.x, pos.y + 1, frontPos.z);
-        const aboveBlock = this.actions.block_at(frontPos.x, pos.y + 2, frontPos.z);
-        const overheadBlock = this.actions.block_at(pos.x, pos.y + 2, pos.z);
-        
-        const feetBlocked = feetBlock && feetBlock.name !== 'air';
-        const headBlocked = headBlock && headBlock.name !== 'air';
-        const aboveBlocked = aboveBlock && aboveBlock.name !== 'air';
-        const overheadBlocked = overheadBlock && overheadBlock.name !== 'air';
-        
-        // Obstacle type A: Only feet blocked (can jump)
-        if (feetBlocked && !headBlocked && !aboveBlocked && !overheadBlocked) 
-        {
-            return { canJump: true, isBlocked: false };
-        }
-        // Obstacle type B: Head blocked OR (feet blocked AND (overhead OR above)) - impassable
-        else if (headBlocked || (feetBlocked && (overheadBlocked || aboveBlocked))) 
-        {
-            return { canJump: false, isBlocked: true };
-        }
-        
-        return { canJump: false, isBlocked: false };
-    }
-
+    
     /**
      * @brief Marks a step as completed only when bot actually moves to new coordinates
      * @param {string} direction - Direction that was completed (for compatibility)
      */
     completeStep(direction)
     {
-        if (this.isGoalMode && this.currentPathIndex < this.currentPath.length) 
+        if (this.currentPathIndex < this.currentPath.length) 
         {
             const currentPos = this.actions.position();
             const targetStep = this.currentPath[this.currentPathIndex];
@@ -705,19 +686,21 @@ class SimplePathfinder
             {
                 console.log(`[PF] Step not completed - bot at (${currentPos.x},${currentPos.z}), target (${targetStep.x},${targetStep.z})`);
                 
-                // Check if bot is supposed to jump (obstacle in front but can jump)
-                const obstacle = this.checkImmediateObstacle();
+                // Check if bot is at a position that requires jumping
+                const currentCoordKey = `${currentPos.x},${currentPos.z}`;
+                const targetCoordKey = `${targetStep.x},${targetStep.z}`;
                 
-                if (!obstacle.canJump && !obstacle.isBlocked) 
+                if (!this.jumpCoords.has(currentCoordKey) && !this.jumpCoords.has(targetCoordKey)) 
                 {
-                    // Only force unstuck movement if bot isn't supposed to jump
+                    // Only force unstuck movement if neither current nor target position requires jumping
                     const unstuckDirection = this.getPerpendicularDirection(this.currentDirection);
                     console.log(`[PF] Forcing unstuck step: ${unstuckDirection}`);
                     this.actions.step(unstuckDirection);
                 }
+
                 else 
                 {
-                    console.log(`[PF] Bot should jump or is blocked, not forcing unstuck movement`);
+                    console.log(`[PF] Position requires jumping, not forcing unstuck movement`);
                 }
             }
         }
@@ -730,7 +713,8 @@ class SimplePathfinder
      */
     getPerpendicularDirection(direction)
     {
-        const perpendicularMap = {
+        const perpendicularMap =
+        {
             'north': 'west',
             'west': 'south', 
             'south': 'east',
@@ -738,46 +722,6 @@ class SimplePathfinder
         };
         
         return perpendicularMap[direction] || 'west';
-    }
-
-    //! En lugar de tener métodos idle, directamente pasar al estado idle en la máquina de estados
-    /**
-     * @brief Sets bot to idle state
-     */
-    setIdle()
-    {
-        this.isIdle = true;
-        console.log('[PF] Bot set to idle');
-    }
-
-    /**
-     * @brief Clears idle state
-     */
-    clearIdle()
-    {
-        this.isIdle = false;
-        console.log('[PF] Bot cleared from idle');
-    }
-
-    /**
-     * @brief Sets current movement direction
-     * @param {string} direction - New direction to set
-     */
-    setDirection(direction)
-    {
-        if (DIRECTIONS.includes(direction)) 
-        {
-            this.currentDirection = direction;
-        }
-    }
-
-    /**
-     * @brief Gets current movement direction
-     * @returns {string} Current direction
-     */
-    getDirection()
-    {
-        return this.currentDirection;
     }
 }
 

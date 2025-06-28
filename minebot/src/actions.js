@@ -6,7 +6,7 @@
     * @author      Ian A. Dib
     * @author      Luciano S. Cordero
     * @date        2025-06-07
-    * @version     2.0 - Fixed lookAt command
+    * @version     3.0 - Deleted unused commands
 
     ************************************************************************************* */
 
@@ -15,8 +15,9 @@
     * INCLUDES AND DEPENDENCIES *
    ************************************************************************************** */
 
-const { GoalBlock } = require('mineflayer-pathfinder').goals;
-const { Vec3 } = require("vec3");
+//! Test
+const {GoalBlock} = require('mineflayer-pathfinder').goals;
+const {Vec3} = require("vec3");
 
 
 /* **************************************************************************************
@@ -58,9 +59,8 @@ class BotActions
         this.bot = bot;
     }
 
-    //* MOVEMENT AND NAVIGATION
+    //* MOVEMENT AND POSITION
 
-    //! Pasar la parte de look en step a su propio comando
     /**
      * @brief Executes a single step movement in a cardinal direction
      * @param {string} direction - Cardinal direction (north, south, east, west)
@@ -75,7 +75,6 @@ class BotActions
         
         try
         {
-            // Set bot orientation using lookAt with a target point
             const currentPos = this.bot.entity.position;
             const targetPoint = new Vec3(
                 currentPos.x + offset.x,
@@ -83,24 +82,22 @@ class BotActions
                 currentPos.z + offset.z
             );
             
+            // Set bot orientation using lookAt with a target point
             await this.bot.lookAt(targetPoint, true);
             
             // Move forward with direct control, as pathfinder.goto() caused errors
             this.bot.setControlState('forward', true);
+            await new Promise(resolve => setTimeout(resolve, 300)); // Movement duration
             
-            // Movement duration - adjust as needed
-            await new Promise(resolve => setTimeout(resolve, 300));
-            
-            // Stop movement
-            this.bot.setControlState('forward', false);
+            this.bot.setControlState('forward', false); // Stop movement
             
             return true;
         }
+
         catch (error)
         {
-            // Ensure movement is stopped even on error
-            console.log('step error')
-            this.bot.setControlState('forward', false);
+            console.log('Step error')
+            this.bot.setControlState('forward', false); // Stop movement
             throw error;
         }
     }
@@ -112,14 +109,9 @@ class BotActions
     jump()
     {
         this.bot.setControlState('jump', true);
-        setTimeout(() => 
-        {
-            this.bot.setControlState('jump', false);
-        }, JUMP_DURATION);
+        setTimeout(() => {this.bot.setControlState('jump', false);}, JUMP_DURATION);
         return true;
     }
-
-    //* POSITION AND WORLD QUERIES
 
     /**
      * @brief Retrieves bot's current floored position coordinates
@@ -128,28 +120,10 @@ class BotActions
     position()
     {
         const pos = this.bot.entity.position;
-        return {
-            x: Math.floor(pos.x),
-            y: Math.floor(pos.y),
-            z: Math.floor(pos.z)
-        };
+        return {x: Math.floor(pos.x), y: Math.floor(pos.y), z: Math.floor(pos.z)};
     }
 
-    /**
-     * @brief Retrieves spawn point coordinates
-     * @returns {Object|null} Spawn point coordinates or null if not available
-     */
-    spawnPoint()
-    {
-        if (this.bot.spawnPoint) {
-            return {
-                x: this.bot.spawnPoint.x,
-                y: this.bot.spawnPoint.y,
-                z: this.bot.spawnPoint.z
-            };
-        }
-        return null;
-    }
+    //* BLOCK DETECTION
 
     /**
      * @brief Locates the nearest block of specified type within search radius

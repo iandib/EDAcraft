@@ -41,7 +41,7 @@ const GOAL_SEQUENCE =
 
 
 /* **************************************************************************************
-    * CLASS IMPLEMENTATIONS *
+    * MAIN CLASS IMPLEMENTATION *
    ************************************************************************************** */
 
 /**
@@ -141,8 +141,7 @@ class AutonomousBot
             if (this.currentGoalIndex >= GOAL_SEQUENCE.length)
             {
                 console.log('All goals completed!');
-                //! Debería terminar la ejecución
-                // this.currentState = 'COMPLETED';
+                this.stop;
                 return;
             }
             
@@ -176,39 +175,18 @@ class AutonomousBot
                 await this.actions.step(movement.direction);
 
                 // Mark step as completed for goal-based movement
-                if (this.pathfinder.isGoalMode)
-                    {this.pathfinder.completeStep(movement.direction);}
+                this.pathfinder.completeStep(movement.direction);
                 break;
                 
             case 'move':
                 await this.actions.step(movement.direction);
-                
-                // Mark step as completed for goal-based movement
-                if (this.pathfinder.isGoalMode)
-                    {this.pathfinder.completeStep(movement.direction);}
+                this.pathfinder.completeStep(movement.direction);
                 break;
             
             // Bot is idle - either goal reached or impassable obstacle
             case 'idle':
                 break;
         }
-    }
-
-    /**
-     * @brief Changes bot direction to specified new direction
-     * @param {string} newDirection - Direction to change to
-     */
-    async changeDirection(newDirection)
-    {
-        const currentDirection = this.pathfinder.getDirection();
-        
-        console.log(`Changing direction from ${currentDirection} to ${newDirection}`);
-        
-        // Update pathfinder direction
-        this.pathfinder.setDirection(newDirection);
-        
-        // Update bot's look direction
-        await this.actions.lookAt(newDirection);
     }
 
     /**
