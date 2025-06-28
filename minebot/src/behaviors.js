@@ -31,17 +31,23 @@ const MOVEMENT_INTERVAL = 200;
 // Goal coordinates sequence
 const GOAL_SEQUENCE =
 [
-    // {x: -638, y: 68, z: 141, type: 'chest_location'},
+    {x: -640, y: 68, z: 136, type: 'block_to_dig'},
     {x: -700, y: 63, z: 145, type: 'first_checkpoint'},
     {x: -722, y: 63, z: 145, type: 'bridge_start'},
     {x: -735, y: 63, z: 145, type: 'bridge_end'},
     {x: -750, y: 63, z: 145, type: 'second_checkpoint'},
-    {x: -791, y: 103, z: 152, type: 'final-location'}
+    {x: -791, y: 103, z: 152, type: 'final-location'},
+    {x: -750, y: 63, z: 145, type: 'second_checkpoint'},
+    {x: -735, y: 63, z: 145, type: 'bridge_end'},
+    {x: -722, y: 63, z: 145, type: 'bridge_start'},
+    {x: -700, y: 63, z: 145, type: 'first_checkpoint'},
+    {x: -640, y: 71, z: 128, type: 'spawn'},
+    {x: -638, y: 68, z: 141, type: 'chest_location'}
 ];
 
 
 /* **************************************************************************************
-    * CLASS IMPLEMENTATIONS *
+    * MAIN CLASS IMPLEMENTATION *
    ************************************************************************************** */
 
 /**
@@ -87,6 +93,8 @@ class AutonomousBot
         this.movementLoop();
     }
 
+    //* MOVEMENT ACTIONS
+
     /**
      * @brief Main movement loop - executes continuously
      */
@@ -121,6 +129,18 @@ class AutonomousBot
             case 'MOVING_TO_GOAL':
                 await this.handleMovingToGoal();
                 break;
+
+            case 'MINING':
+                await this.handleMining();
+                break;
+            
+            case 'SEARCHING_CHEST':
+                await this.handleSearchingChest();
+                break;
+
+            case 'MANAGE_CHEST':
+                await this.handleManagingChest();
+                break;
         }
     }
 
@@ -133,6 +153,13 @@ class AutonomousBot
         if (this.pathfinder.isAtGoal())
         {
             console.log(`Reached goal ${this.currentGoalIndex + 1}: ${this.currentGoal.type}`);
+
+            // Check if bot is at first goal
+            //if (this.currentGoalIndex == 0)
+            //{
+            //    this.currentState = 'MINING'
+            //    return;
+            //}
             
             // Move to next goal in sequence
             this.currentGoalIndex++;
@@ -140,9 +167,8 @@ class AutonomousBot
             // Check if all goals completed
             if (this.currentGoalIndex >= GOAL_SEQUENCE.length)
             {
-                console.log('All goals completed!');
-                //! Debería terminar la ejecución
-                // this.currentState = 'COMPLETED';
+                console.log('All navigation goals completed');
+                this.currentState = 'SEARCHING_CHEST';
                 return;
             }
             
@@ -176,16 +202,12 @@ class AutonomousBot
                 await this.actions.step(movement.direction);
 
                 // Mark step as completed for goal-based movement
-                if (this.pathfinder.isGoalMode)
-                    {this.pathfinder.completeStep(movement.direction);}
+                this.pathfinder.completeStep(movement.direction);
                 break;
                 
             case 'move':
                 await this.actions.step(movement.direction);
-                
-                // Mark step as completed for goal-based movement
-                if (this.pathfinder.isGoalMode)
-                    {this.pathfinder.completeStep(movement.direction);}
+                this.pathfinder.completeStep(movement.direction);
                 break;
             
             // Bot is idle - either goal reached or impassable obstacle
@@ -194,22 +216,104 @@ class AutonomousBot
         }
     }
 
+    //* WORLD INTERACTIONS 
+
     /**
-     * @brief Changes bot direction to specified new direction
-     * @param {string} newDirection - Direction to change to
+     * @brief Handles chest searching
      */
-    async changeDirection(newDirection)
+    async handleSearchingChest()
     {
-        const currentDirection = this.pathfinder.getDirection();
+        // Search for chest blocks
+        const chest = this.actions.find_block('chest', 16);
         
-        console.log(`Changing direction from ${currentDirection} to ${newDirection}`);
-        
-        // Update pathfinder direction
-        this.pathfinder.setDirection(newDirection);
-        
-        // Update bot's look direction
-        await this.actions.lookAt(newDirection);
+        if (chest)
+        {
+            console.log(`Found chest at (${chest.x}, ${chest.y}, ${chest.z})`);
+            this.currentState = 'MANAGE_CHEST';
+        }
+
+        else
+        {
+            console.log('No chest found');
+            await this.stop;
+        }
     }
+
+    /**
+     * @brief Handles chest management (open, collect, close, report)
+     */
+    async handleManagingChest()
+    {
+        try
+        {
+            // Open chest
+            console.log('Opening chest...');
+            await this.actions.openChestAt(this.chest.x, this.chest.y, this.chest.z);
+            
+            // Get chest contents
+            const contents = this.actions.getChestContents();
+            console.log(`Found ${contents.length} items in chest`);
+            
+            // Store collected items for reporting
+            this.collectedItems = contents.map(item => `${item.count}x ${item.name}`);
+            
+            // Close chest
+            this.actions.closeChest();
+            console.log('Chest closed');
+            
+            // Report collected items
+            if (this.collectedItems.length > 0)
+            {
+                const itemList = this.collectedItems.join(', ');
+                this.actions.chat(`Items collected: ${itemList}`);
+            }
+
+            else
+            {
+                this.actions.chat('Chest was empty');
+            }
+
+            console.log('All tasks completed');
+            this.stop;
+        }
+
+        catch (error)
+        {
+            console.log(`Chest management error: ${error.message}`);
+            this.stop;
+        }
+    }
+
+    /**
+     * @brief Handles mining operations
+     */
+    async handleMining()
+    {
+        // Example logic, not implemented in the states machine flow
+        try
+        {
+            const pos = this.actions.position();
+            const nextBlock = this.actions.block_at(pos.x, pos.y, pos.z + 1);
+            
+            if (nextBlock && nextBlock.name !== 'air' && nextBlock.name !== 'bedrock')
+            {
+                console.log(`Mining block: ${nextBlock.name}`);
+                await this.actions.dig_block(pos.x, pos.y, pos.z + 1);
+            }
+            
+            // Move to next goal in sequence
+            this.currentGoalIndex++;
+            this.currentState = 'MOVING_TO_GOAL';
+        }
+
+        catch (error)
+        {
+            console.log(`Mining error: ${error.message}`);
+            this.currentState = 'MOVING_TO_GOAL';
+        }
+    }
+
+    //* ADITIONAL UTILITIES
 
     /**
      * @brief Stops autonomous movement

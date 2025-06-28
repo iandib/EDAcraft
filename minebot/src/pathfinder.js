@@ -132,9 +132,6 @@ class SimplePathfinder
         // Record the bot's starting position when goal is set
         this.startPosition = this.actions.position();
         console.log(`[PF] Bot start: x:${this.startPosition.x}, y:${this.startPosition.y}, z:${this.startPosition.z}`);
-
-        // Record and print the spawn point position
-        const spawnPoint = this.actions.spawnPoint();
         
         this.goalPosition = {x, y, z};
         this.isGoalMode = true;
