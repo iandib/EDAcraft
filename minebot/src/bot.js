@@ -122,7 +122,8 @@ class MinecraftBot
     /**
      * @brief Handles bot spawn event with system initialization and autonomous mode startup
      */
-    onSpawn() {
+    onSpawn()
+    {
         if (this.isReady)
         {
             console.log('onSpawn called but bot is already ready, skipping...');

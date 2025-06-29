@@ -242,7 +242,7 @@ class AutonomousBot
             
             // Open chest
             console.log('Opening chest...');
-            await this.actions.openChestAt(this.chest.x, this.chest.y, this.chest.z);
+            await this.bot.openChestAt(this.chest.x, this.chest.y, this.chest.z);
             
             // Get chest contents
             const contents = this.actions.getChestContents();
