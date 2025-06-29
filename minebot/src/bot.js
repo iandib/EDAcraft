@@ -14,7 +14,6 @@
     * INCLUDES AND DEPENDENCIES *
    ************************************************************************************** */
 
-//! Test
 const mineflayer = require('mineflayer');
 const {pathfinder, Movements} = require('mineflayer-pathfinder');
 const {mineflayer: mineflayerViewer} = require('prismarine-viewer');

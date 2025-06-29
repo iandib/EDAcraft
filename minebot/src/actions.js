@@ -14,7 +14,6 @@
     * INCLUDES AND DEPENDENCIES *
    ************************************************************************************** */
 
-//! Test
 const {GoalBlock} = require('mineflayer-pathfinder').goals;
 const {Vec3} = require("vec3");
 
