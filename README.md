@@ -9,7 +9,7 @@ Implementó los comandos `step`, `jump`, `position`, `find_block` y `block_at` e
 Amplió `actions.js` agregando los comandos `openChestAt`, `getChestContents`, `closeChest`, `chat` y `dig_block`, también tomando como referencia los comandos en la API del código base. Modificó el comando `step` para independizarse de la función `pathfinder.goto()` que generaba problemas al intentar que el bot cayera cierta altura. Amplió la lógica de estados en `behaviors.js` para soportar navegación con múltiples objetivos secuenciales y agregó los métodos `sleep()` y `stop()` para agregar delays y detener la ejecución del programa, respectivamente.
 Implementó el algoritmo A* en `pathfinder.js`, definiendo objetivos con `setGoal()` en `behaviors.js`. Inicialmente probó un escaneo frontal básico; luego amplió a un análisis 3×3×3 con `performEnvironmentScan()`, `buildPathfindingGrid()` y `updatePathfindingGrid()` para mapear bloqueos. Calculó la ruta óptima con `calculateAStarPath()` (heurística `manhattanDistance()`) y `reconstructPath()`, y gestionó el avance con `getNextMovement()`, `checkImmediateObstacle()`, `isAtGoal()` e `isBotStuck()`.
 
-# Parte 0: Configuración Inicial
+## Parte 0: Configuración Inicial
 
 La clase `MinecraftBot` en `bot.js` actúa como controlador principal del sistema, gestionando la conexión al servidor usando `BOT_CONFIG` que especifica localhost:25565, usuario 'JSBot', y versión '1.21.4' y un visor 3D usando `prismarine-viewer` en el puerto 3007. El método `start()` establece la conexión y retorna una Promise que resuelve cuando el bot hace spawn exitosamente, con un timeout de 30 segundos para prevenir conexiones colgadas.
 
@@ -41,7 +41,7 @@ En `behaviors.js`, el estado `SEARCHING_CHEST` coordina la búsqueda de cofres m
 
 El sistema de minería está implementado mediante `dig_block(x, y, z)` en `actions.js`, que valida que el bloque puede ser excavado usando `bot.canDigBlock()` antes de ejecutar `bot.dig()`, con manejo de errores para bloques protegidos o inválidos. El estado `MINING` en `behaviors.js` implementa lógica inteligente que utiliza `position()` para obtener la ubicación actual del bot y `block_at()` para analizar bloques adyacentes, específicamente el bloque directamente debajo del bot (y-1). El sistema filtra bloques no minables como `air` y `bedrock`, y después de cada operación de minería exitosa, automáticamente detiene la ejecución del programa.
 
-# Parte 3: Análisis de Implementación y Resultados
+## Parte 3: Análisis de Implementación y Resultados
 
 El algoritmo A* implementado cumple con las especificaciones requeridas al no utilizar funciones de pathfinding de bibliotecas externas y funcionar efectivamente en un entorno 3D cúbico mediante la combinación de una grilla 2D con condiciones especiales de salto. El sistema de asignación de costos utiliza una heurística de Manhattan admisible y consistente, como se detalló en las secciones anteriores.
 
@@ -53,7 +53,7 @@ La principal limitación del programa es que utiliza una grilla 2D con métodos 
 
 Además, el bot ejecuta cada paso durante intervalos de tiempo fijos en lugar de navegar a coordenadas específicas exactas (por habernos independizado de `pathfinder.goto()`). Esto ocasionalmente resulta en posicionamiento del bot no centrado en un bloque, lo que dificulta la navegación. Como solución, el estado `isBotStuck` fuerza movimientos cuando el bot queda atascado entre bloques, pero no es infalible y su efectividad varía entre ejecuciones (en algunas iteraciones, el bot cumple todos los objetivos navegables sin colisiones, mientras que en otras no logra desatascarse completamente).
 
-## Tareas Completadas
+### Tareas Completadas
 
 El sistema cumple exitosamente con la siguiente secuencia de objetivos:
 
@@ -77,11 +77,11 @@ Las siguientes tareas no pudieron completarse debido a limitaciones en la arquit
 
 Estas coordenadas corresponden al bloque de bedrock en la punta de la montaña del mapa. Sin una grilla 3D nativa, resulta complicado navegar este terreno. El bot intenta recorrer la montaña por el perímetro de su base en lugar de escalar.
 
-## Decisiones de Implementación
+### Decisiones de Implementación
 
 La decisión de implementar el sistema completamente en JavaScript, a pesar de conocer el lenguaje pero sin experticia avanzada, resultó contraproducente. Si bien alcanzamos la mayoría de los objetivos planteados, los errores persistentes y las metas parcialmente logradas revelan el costo de nuestra elección: horas de depuración reinventando funcionalidades que ya existían en el código base de C++, una curva de aprendizaje mucho más empinada y un desarrollo menos estable de lo previsto. Esperamos que este balance pueda ser considerado al momento de la evaluación del trabajo práctico.
 
-# Bonus
+## Bonus
 
 - Revisamos el mapa completo y encontramos una cueva con antorcha, un templo marino, un templo de jungla y un barco hundido. Creemos que estos son los easter eggs.
 
